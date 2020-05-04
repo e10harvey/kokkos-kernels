@@ -46,7 +46,7 @@
 #include <cstdlib>
 #include <unistd.h>
 #include <getopt.h>
-
+//TEST AUTO-TESTER
 static struct option long_options[] = {
   {"help",              no_argument,       0, 'h'},
   {"test",              required_argument, 0, 't'},
