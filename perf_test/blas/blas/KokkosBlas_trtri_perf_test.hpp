@@ -200,6 +200,7 @@ void __do_trtri_serial_batched(options_t options, trtri_args_t trtri_args)
   return;
 }
 
+#if !defined(KOKKOS_ENABLE_CUDA)
 template<class ExecutionSpace>
 struct parallel_blas_trtri {
   trtri_args_t trtri_args_;
@@ -213,10 +214,12 @@ struct parallel_blas_trtri {
     KokkosBlas::trtri(&trtri_args_.uplo, &trtri_args_.diag, svA);
   }
 };
+#endif
 
 template<class scalar_type, class vta, class device_type>
 void __do_trtri_parallel_blas(options_t options, trtri_args_t trtri_args)
 {
+#if !defined(KOKKOS_ENABLE_CUDA)
   uint32_t warm_up_n = options.warm_up_n;
   uint32_t n = options.n;
   Kokkos::Timer timer;
@@ -227,16 +230,17 @@ void __do_trtri_parallel_blas(options_t options, trtri_args_t trtri_args)
   STATUS;
 
   Kokkos::parallel_for("parallelBlasWarmUpLoopTrtri", 
-                       Kokkos::RangePolicy<execution_space>(0, warm_up_n),
-                       parallel_blas_trtri_functor);
+                      Kokkos::RangePolicy<execution_space>(0, warm_up_n),
+                      parallel_blas_trtri_functor);
   Kokkos::fence();
 
   timer.reset();
   Kokkos::parallel_for("parallelBlasTimedLoopTrtri", 
-                       Kokkos::RangePolicy<execution_space>(0, n),
-                       parallel_blas_trtri_functor);
+                      Kokkos::RangePolicy<execution_space>(0, n),
+                      parallel_blas_trtri_functor);
   Kokkos::fence();
   __trtri_output_csv_row(options, trtri_args, timer.seconds());
+#endif
   return;
 }
 

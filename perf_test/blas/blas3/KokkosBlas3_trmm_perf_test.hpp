@@ -264,6 +264,7 @@ void __do_trmm_serial_batched(options_t options, trmm_args_t trmm_args)
   return;
 }
 
+#if !defined(KOKKOS_ENABLE_CUDA)
 template<class ExecutionSpace>
 struct parallel_blas_trmm {
   trmm_args_t trmm_args_;
@@ -279,10 +280,12 @@ struct parallel_blas_trmm {
                      &trmm_args_.diag, trmm_args_.alpha, svA, svB);
   }
 };
+#endif
 
 template<class scalar_type, class vta, class vtb, class device_type>
 void __do_trmm_parallel_blas(options_t options, trmm_args_t trmm_args)
 {
+#if !defined(KOKKOS_ENABLE_CUDA)
   uint32_t warm_up_n = options.warm_up_n;
   uint32_t n = options.n;
   Kokkos::Timer timer;
@@ -303,6 +306,7 @@ void __do_trmm_parallel_blas(options_t options, trmm_args_t trmm_args)
                        parallel_blas_trmm_functor);
   Kokkos::fence();
   __trmm_output_csv_row(options, trmm_args, timer.seconds());
+#endif
   return;
 }
 
