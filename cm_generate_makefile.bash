@@ -112,7 +112,7 @@ get_kernels_scalar_list() {
   for SCALAR_ in $PARSE_SCALARS_LIST
   do
     UC_SCALAR=$(echo $SCALAR_ | tr "[:lower:]" "[:upper:]")
-    KOKKOSKERNELS_SCALARS_CMD="-DKokkosKernels_INST_${UC_SCALAR}=ON ${KOKKOSKERNELS_SCALARS_CMD}"
+    KOKKOSKERNELS_SCALARS_CMD="-DKOKKOSKERNELS_INST_${UC_SCALAR}=ON ${KOKKOSKERNELS_SCALARS_CMD}"
   done
 }
 
