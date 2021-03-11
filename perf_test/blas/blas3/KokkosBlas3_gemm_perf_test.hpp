@@ -100,11 +100,13 @@ struct SimdCpuTag {};
 void do_gemm_serial_opt1_batched_parallel(options_t options);
 void do_gemm_serial_opt1_batched_blocked_parallel(options_t options);
 
-// Optimization tags
+// Optimization level tags
 // Opt1 is level 1: increase the number of threads by columns of C
 // Opt2 is level 2: increase the number of threads by columns of C and rows of C
 struct SerialTagOpt1 {};
 struct SerialBatchDim3TagOpt1 {};
+struct SerialTagOpt2 {};
+struct SerialBatchDim3TagOpt2 {};
 
 // gemm invoke table
 void (*do_gemm_invoke[LOOP_N][TEST_N])(options_t) = {
@@ -492,6 +494,36 @@ struct parallel_batched_gemm_range_policy {
         gemm_args_.alpha, svA, svB_col, gemm_args_.beta, svC_col);
   }
 
+    KOKKOS_INLINE_FUNCTION
+  void operator()(const SerialTagOpt2 &, const int &i) const {
+    auto batch_idx = / divisor_;
+    auto mod       = batch_idx % divisor; // 0,1,2,3
+    auto col_idx   = mod % gemm_args_.C.extent(2);
+    auto row_idx   = mod / gemm_args_.C.extent(1);
+
+    auto svA_row = Kokkos::subview(gemm_args_.A, batch_idx, row_idx, Kokkos::ALL());
+    auto svB_col = Kokkos::subview(gemm_args_.B, batch_idx, Kokkos::ALL(), col_idx);
+    auto svC_ele = Kokkos::subview(gemm_args_.C, batch_idx, row_idx, col_idx);
+
+    KokkosBatched::SerialGemm<TransAType, TransBType, BlockingType>::invoke(
+        gemm_args_.alpha, svA_row, svB_ele, gemm_args_.beta, svC_col);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  void operator()(const SerialBatchDim3TagOpt2 &, const int &i) const {
+/*     // Select next matrix everytime i is a new multiple of divisor
+    auto batch_idx = i / divisor_;
+    // Select col of B and C
+    auto col_idx   = i % divisor_;
+
+    auto svA     = Kokkos::subview(gemm_args_.A, Kokkos::ALL(), Kokkos::ALL(), batch_idx);
+    auto svB_col = Kokkos::subview(gemm_args_.B, Kokkos::ALL(), col_idx, batch_idx);
+    auto svC_col = Kokkos::subview(gemm_args_.C, Kokkos::ALL(), col_idx, batch_idx);
+
+    KokkosBatched::SerialGemm<TransAType, TransBType, BlockingType>::invoke(
+        gemm_args_.alpha, svA, svB_col, gemm_args_.beta, svC_col); */
+  }
+
   KOKKOS_INLINE_FUNCTION
   void operator()(const SerialSimdTag &, const int &i) const {
     auto svA =
@@ -743,6 +775,7 @@ void __do_gemm_parallel_batched_template_range_policy(options_t options,
   if (std::is_same<AlgoTag, SerialTagOpt1>::value ||
       std::is_same<AlgoTag, SerialBatchDim3TagOpt1>::value) {
     // NOTE: Intentionally leave AlgoTag at Opt1 on host for perf test
+    // NOTE: Intentionally stay at Opt1 even if batch_size >= backend_thread_threshold
     divisor = gemm_args.dims.c.n;
     batch_size *= divisor;
   }
