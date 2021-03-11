@@ -123,6 +123,8 @@ static std::string loop_e_str[LOOP_N] = {"serial", "parallel"};
  *                                     KokkosBlas namespace.
  * @var BATCHED_SERIAL{_BLOCKED}:      Run the serial blas routine through the
  *                                     KokkosBatched namespace.
+ * @var BATCHED_SERIAL_OPT1{_BLOCKED}: Run the serial blas routine through the
+ *                                     KokkosBatched namespace with level 1 optimization.
  * @var BATCHED_SERIAL_SIMD{_BLOCKED}: Run the serial blas routine through the
  *                                     KokkosBatched namespace using SIMD views.
  * @var BATCHED_SERIAL_COMPACT_MKL:    Run the serial blas mkl routine through
@@ -140,6 +142,8 @@ typedef enum TEST {
   BLAS,
   BATCHED_SERIAL,
   BATCHED_SERIAL_BLOCKED,
+  BATCHED_SERIAL_OPT1,
+  BATCHED_SERIAL_OPT1_BLOCKED,
   BATCHED_SERIAL_SIMD,
   BATCHED_SERIAL_SIMD_BLOCKED,
   BATCHED_SERIAL_COMPACT_MKL,
@@ -155,7 +159,7 @@ typedef enum TEST {
 } test_e;
 
 static std::string test_e_str[TEST_N]{
-    "blas", "batched_serial", "batched_serial_blocked", "batched_serial_simd",
+    "blas", "batched_serial", "batched_serial_blocked", "batched_serial_opt1", "batched_serial_opt1_blocked", "batched_serial_simd",
     "batched_serial_simd_blocked", "batched_serial_compact_mkl", "batched_team",
     "batched_team_blocked", "batched_team_vector",
     "batched_team_vector_blocked", "batched_team_simd",
