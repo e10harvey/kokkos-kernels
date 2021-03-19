@@ -59,7 +59,7 @@ namespace KokkosBatched {
       if (beta != one) 
         member.team_barrier();
 
-#if 0
+#if 1
       Kokkos::parallel_for(Kokkos::TeamVectorRange(member,0,m*n),[&](const int &ij) {
         // assume layout right for batched computation
         const int i = ij/n, j = ij%n;
