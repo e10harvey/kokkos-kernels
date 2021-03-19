@@ -69,6 +69,7 @@ static struct option long_options[] = {
     {"batch_size", required_argument, 0, 'k'},
     {"batch_size_last_dim", required_argument, 0, 'd'},
     {"verify", required_argument, 0, 'v'},
+    {"divisor", required_argument, 0, 'x'},
     {0, 0, 0, 0}};
 
 static void __print_help_blas3_perf_test() {
@@ -218,6 +219,12 @@ static void __print_help_blas3_perf_test() {
       "verify before timing. "
       "(default: %d)\n",
       DEFAULT_VERIFY);
+
+  printf("\t-x, --divisor=DIVISOR\n");
+  printf("\t\tDivisor selection. Reduces league_size for team functions (untimed)\n");
+  printf(
+      "\t\t\tValid values for DIVISOR are any positive integer. (default: %d)\n",
+      DEFAULT_VERIFY);
 }
 
 static void __blas3_perf_test_input_error(char **argv, char short_opt,
@@ -269,6 +276,7 @@ int main(int argc, char **argv) {
   options.blas_args.vector_len          = DEFAULT_VECTOR_LEN;
   options.blas_args.use_auto            = DEFAULT_USE_AUTO;
   options.blas_args.batch_size_last_dim = DEFAULT_BATCH_SIZE_LAST_DIM;
+  options.blas_args.divisor             = DEFAULT_DIVISOR;
   options.verify                        = DEFAULT_VERIFY;
 
   options.blas_args.trmm.trmm_args = DEFAULT_TRMM_ARGS;
@@ -279,7 +287,7 @@ int main(int argc, char **argv) {
   options.blas_args.gemm.beta      = DEFAULT_GEMM_BETA;
 
   while (
-      (ret = getopt_long(argc, argv, "ht:l:b:e:s:w:i:o:a:c:r:g:z:n:k:u:p:d:v:",
+      (ret = getopt_long(argc, argv, "ht:l:b:e:s:w:i:o:a:c:r:g:z:n:k:u:p:d:v:x:",
                          long_options, &option_idx)) != -1) {
     switch (ret) {
       case 'h': __print_help_blas3_perf_test(); return 0;
@@ -402,6 +410,7 @@ int main(int argc, char **argv) {
         break;
       case 'd': options.blas_args.batch_size_last_dim = atoi(optarg); break;
       case 'v': options.verify = atoi(optarg); break;
+      case 'x': options.blas_args.divisor = atoi(optarg); break;
       case 'z': options.blas_args.team_size = atoi(optarg); break;
       case 'n': options.blas_args.vector_len = atoi(optarg); break;
       case 'u': options.blas_args.use_auto = atoi(optarg); break;
@@ -424,6 +433,12 @@ int main(int argc, char **argv) {
   if (options.warm_up_n > options.n) {
     fprintf(stderr, "ERROR: warm_up_n=%d > n=%d. Try --help.\n",
             options.warm_up_n, options.n);
+    exit(-EINVAL);
+  }
+
+  if (options.blas_args.divisor > 1 && !(options.test == BATCHED_TEAM_OPTDIVISOR || options.test == BATCHED_TEAM_OPTDIVISOR_BLOCKED)) {
+    fprintf(stderr, "ERROR: divisor=%d but \"optdivisor\" test not selected. Try --help.\n",
+            options.blas_args.divisor);
     exit(-EINVAL);
   }
 

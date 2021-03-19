@@ -64,6 +64,7 @@
 #define DEFAULT_USE_AUTO 0
 #define DEFAULT_BATCH_SIZE_LAST_DIM 0
 #define DEFAULT_VERIFY 1
+#define DEFAULT_DIVISOR 1
 
 /************************ blas routine structure definitions **********/
 struct perf_test_trmm_args {
@@ -87,6 +88,7 @@ struct blas_args {
   int team_size;
   int vector_len;
   bool use_auto, batch_size_last_dim;
+  int divisor;
   // ADD MORE COMMON BLAS3 OPTIONS HERE
 };
 typedef struct blas_args blas_args_t;
@@ -153,6 +155,8 @@ typedef enum TEST {
   BATCHED_SERIAL_COMPACT_MKL,
   BATCHED_TEAM,
   BATCHED_TEAM_BLOCKED,
+  BATCHED_TEAM_OPTDIVISOR,
+  BATCHED_TEAM_OPTDIVISOR_BLOCKED,
   BATCHED_TEAM_VECTOR,
   BATCHED_TEAM_VECTOR_BLOCKED,
   BATCHED_TEAM_SIMD,
@@ -162,17 +166,21 @@ typedef enum TEST {
   TEST_N
 } test_e;
 
+// clang-format off
 static std::string test_e_str[TEST_N]{
-    "blas", "batched_serial", "batched_serial_blocked", 
+    "blas",
+    "batched_serial", "batched_serial_blocked", 
     "batched_serial_opt1", "batched_serial_opt1_blocked",
     "batched_serial_opt2", "batched_serial_opt2_blocked",
-    "batched_serial_simd",
-    "batched_serial_simd_blocked", "batched_serial_compact_mkl", "batched_team",
-    "batched_team_blocked", "batched_team_vector",
-    "batched_team_vector_blocked", "batched_team_simd",
-    "batched_team_simd_blocked",
+    "batched_serial_simd", "batched_serial_simd_blocked",
+    "batched_serial_compact_mkl",
+    "batched_team", "batched_team_blocked",
+    "batched_team_optdivisor", "batched_team_optdivisor_blocked",
+    "batched_team_vector", "batched_team_vector_blocked",
+    "batched_team_simd", "batched_team_simd_blocked",
     // ADD MORE TEST TYPES HERE
     "experiment"};
+// clang-format on
 
 /**
  * @var k: Number of 2D matrices.
