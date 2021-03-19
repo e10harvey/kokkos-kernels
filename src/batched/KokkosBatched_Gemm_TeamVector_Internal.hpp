@@ -52,30 +52,25 @@ namespace KokkosBatched {
         
     if      (beta == zero) TeamVectorSetInternal  ::invoke(member, m, n, zero, C, cs0, cs1);
     else if (beta != one ) TeamVectorScaleInternal::invoke(member, m, n, beta, C, cs0, cs1);
-        
+
     if (alpha != ScalarType(0.0)) {
       if (m <= 0 || n <= 0 || k <= 0) return 0;
 
       if (beta != one) 
         member.team_barrier();
-            
-      Kokkos::parallel_for
-	(Kokkos::TeamThreadRange(member,m),
-	 [&](const int &i) {
-	   const ValueType
-	     *__restrict__ pA = A+i*as0;
-	   Kokkos::parallel_for
-	     (Kokkos::ThreadVectorRange(member,n),
-	      [&](const int &j) {								   
-		const ValueType
-		  *__restrict__ pB = B+j*bs1;
-		
-		ValueType c = ValueType(0);
-		for (int p=0;p<k;++p) 
-		  c += pA[p*as1]*pB[p*bs0];
-		C[i*cs0+j*cs1] += alpha*c;
-	      });
-	 });
+          
+      Kokkos::parallel_for(Kokkos::TeamVectorRange(member,0,m*n),[&](const int &ij) {
+        // assume layout right for batched computation
+        const int i = ij/n, j = ij%n;
+        const ValueType
+          *__restrict__ pA = A+i*as0,
+          *__restrict__ pB = B+j*bs1;
+          
+        ValueType c = ValueType(0);
+        for (int p=0;p<k;++p) 
+          c += pA[p*as1]*pB[p*bs0];
+        C[i*cs0+j*cs1] += alpha*c;
+      });
     }
     return 0;
   }
