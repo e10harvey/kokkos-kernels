@@ -436,7 +436,7 @@ int main(int argc, char **argv) {
     exit(-EINVAL);
   }
 
-  if (options.blas_args.divisor > 1 && !(options.test == BATCHED_TEAM_OPTDIVISOR || options.test == BATCHED_TEAM_OPTDIVISOR_BLOCKED)) {
+  if (options.blas_args.divisor > 1 && !(options.test == BATCHED_TEAM_OPTDIVISOR || options.test == BATCHED_TEAM_OPTDIVISOR_BLOCKED || options.test == BATCHED_SERIAL_OPT_TEAM || options.test == BATCHED_SERIAL_OPT_TEAM_BLOCKED)) {
     fprintf(stderr, "ERROR: divisor=%d but \"optdivisor\" test not selected. Try --help.\n",
             options.blas_args.divisor);
     exit(-EINVAL);

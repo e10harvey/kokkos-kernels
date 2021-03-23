@@ -101,6 +101,8 @@ void do_gemm_serial_opt1_batched_parallel(options_t options);
 void do_gemm_serial_opt1_batched_blocked_parallel(options_t options);
 void do_gemm_serial_opt2_batched_parallel(options_t options);
 void do_gemm_serial_opt2_batched_blocked_parallel(options_t options);
+void do_gemm_serial_optteam_batched_parallel(options_t options);
+void do_gemm_serial_optteam_batched_blocked_parallel(options_t options);
 void do_gemm_team_optdivisor_batched_parallel(options_t options);
 void do_gemm_team_optdivisor_batched_blocked_parallel(options_t options);
 void do_gemm_team_opt1_batched_parallel(options_t options);
@@ -110,14 +112,18 @@ void do_gemm_team_opt1_batched_blocked_parallel(options_t options);
 // Opt1 is level 1: increase the number of threads by factor 'columns of C'
 // Opt2 is level 2: increase the number of threads by factor 'columns of C * rows of C'
 // OptDivisor: decrease the number of threads by factor 'divisor'
+// OptTeam: Use serial gemm inside a team of threads
 struct SerialTagOpt1 {};
 struct SerialBatchDim3TagOpt1 {};
 struct SerialTagOpt2 {};
 struct SerialBatchDim3TagOpt2 {};
+struct SerialTagOptTeam {};
+struct SerialBatchDim3TagOptTeam {};
 struct TeamTagOptDivisor {};
 struct TeamBatchDim3TagOptDivisor {};
 struct TeamTagOpt1 {};
 struct TeamBatchDim3TagOpt1 {};
+
 
 // gemm invoke table
 void (*do_gemm_invoke[LOOP_N][TEST_N])(options_t) = {
@@ -140,6 +146,8 @@ void (*do_gemm_invoke[LOOP_N][TEST_N])(options_t) = {
         do_gemm_serial_opt1_batched_blocked_parallel,
         do_gemm_serial_opt2_batched_parallel,             // Serial Opt2
         do_gemm_serial_opt2_batched_blocked_parallel,
+        do_gemm_serial_optteam_batched_parallel,          // Serial OptTeam
+        do_gemm_serial_optteam_batched_blocked_parallel,
         do_gemm_serial_simd_batched_parallel,             // Serial SIMD
         do_gemm_serial_simd_batched_blocked_parallel,
         do_gemm_serial_batched_compact_mkl_parallel,      // Serial MKL
@@ -579,6 +587,17 @@ struct parallel_batched_gemm_range_policy {
   }
 
   KOKKOS_INLINE_FUNCTION
+  void operator()(const SerialTagOptTeam &, const int &i) const {
+    Kokkos::abort("SerialTagOptTeam not supported using RangePolicy.");
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  void operator()(const SerialBatchDim3TagOptTeam &, const int &i) const {
+    Kokkos::abort("SerialBatchDim3TagOptTeam not supported using RangePolicy.");
+  }
+
+
+  KOKKOS_INLINE_FUNCTION
   void operator()(const TeamTag &, const int &i) const {
     Kokkos::abort("TeamTag not supported using RangePolicy.");
   }
@@ -733,6 +752,34 @@ struct parallel_batched_gemm {
     // TODO: Fix subview for svA_row and add back in TransAType.
     KokkosBatched::SerialGemm<Trans::Transpose, TransBType, BlockingType>::invoke(
         gemm_args_.alpha, svA_row, svB_col, gemm_args_.beta, svC_ele);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  void operator()(const SerialTagOptTeam &, const MemberType &member) const {
+    auto i   = member.league_rank();
+
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, i*divisor_, i+divisor_),[&](const int &j) {
+      auto svA = Kokkos::subview(gemm_args_.A, j, Kokkos::ALL(), Kokkos::ALL());
+      auto svB = Kokkos::subview(gemm_args_.B, j, Kokkos::ALL(), Kokkos::ALL());
+      auto svC = Kokkos::subview(gemm_args_.C, j, Kokkos::ALL(), Kokkos::ALL());
+
+    KokkosBatched::SerialGemm<TransAType, TransBType, BlockingType>::invoke(
+        gemm_args_.alpha, svA, svB, gemm_args_.beta, svC);
+    });
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  void operator()(const SerialBatchDim3TagOptTeam &, const MemberType &member) const {
+    auto i   = member.league_rank();
+
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, i*divisor_, i+divisor_),[&](const int &j) {
+      auto svA = Kokkos::subview(gemm_args_.A, Kokkos::ALL(), Kokkos::ALL(), j);
+      auto svB = Kokkos::subview(gemm_args_.B, Kokkos::ALL(), Kokkos::ALL(), j);
+      auto svC = Kokkos::subview(gemm_args_.C, Kokkos::ALL(), Kokkos::ALL(), j);
+
+    KokkosBatched::SerialGemm<TransAType, TransBType, BlockingType>::invoke(
+        gemm_args_.alpha, svA, svB, gemm_args_.beta, svC);
+    });
   }
 
   KOKKOS_INLINE_FUNCTION
@@ -2188,6 +2235,34 @@ void do_gemm_serial_opt2_batched_blocked_parallel(options_t options) {
   else
     __do_loop_and_invoke(
         options, __do_gemm_parallel_batched<SerialTagOpt2, Algo::Gemm::Blocked,
+                                            default_device>);
+  return;
+}
+
+void do_gemm_serial_optteam_batched_parallel(options_t options) {
+  STATUS;
+  if (options.blas_args.batch_size_last_dim)
+    __do_loop_and_invoke(
+        options,
+        __do_gemm_parallel_batched<SerialBatchDim3TagOptTeam, Algo::Gemm::Unblocked,
+                                   default_device>);
+  else
+    __do_loop_and_invoke(
+        options, __do_gemm_parallel_batched<SerialTagOptTeam, Algo::Gemm::Unblocked,
+                                            default_device>);
+  return;
+}
+
+void do_gemm_serial_optteam_batched_blocked_parallel(options_t options) {
+  STATUS;
+  if (options.blas_args.batch_size_last_dim)
+    __do_loop_and_invoke(
+        options,
+        __do_gemm_parallel_batched<SerialBatchDim3TagOptTeam, Algo::Gemm::Blocked,
+                                   default_device>);
+  else
+    __do_loop_and_invoke(
+        options, __do_gemm_parallel_batched<SerialTagOptTeam, Algo::Gemm::Blocked,
                                             default_device>);
   return;
 }
