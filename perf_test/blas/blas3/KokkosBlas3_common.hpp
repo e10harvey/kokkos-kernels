@@ -126,9 +126,11 @@ static std::string loop_e_str[LOOP_N] = {"serial", "parallel"};
  * @var BATCHED_SERIAL{_BLOCKED}:      Run the serial blas routine through the
  *                                     KokkosBatched namespace.
  * @var BATCHED_SERIAL_OPT1{_BLOCKED}: Run the serial blas routine through the
- *                                     KokkosBatched namespace with level 1 optimization.
+ *                                     KokkosBatched namespace with level 1
+ * optimization.
  * @var BATCHED_SERIAL_OPT2{_BLOCKED}: Run the serial blas routine through the
- *                                     KokkosBatched namespace with level 2 optimization.
+ *                                     KokkosBatched namespace with level 2
+ * optimization.
  * @var BATCHED_SERIAL_SIMD{_BLOCKED}: Run the serial blas routine through the
  *                                     KokkosBatched namespace using SIMD views.
  * @var BATCHED_SERIAL_COMPACT_MKL:    Run the serial blas mkl routine through

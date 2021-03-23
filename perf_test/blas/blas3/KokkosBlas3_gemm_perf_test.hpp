@@ -110,8 +110,8 @@ void do_gemm_team_opt1_batched_blocked_parallel(options_t options);
 
 // Optimization level tags
 // Opt1 is level 1: increase the number of threads by factor 'columns of C'
-// Opt2 is level 2: increase the number of threads by factor 'columns of C * rows of C'
-// OptDivisor: decrease the number of threads by factor 'divisor'
+// Opt2 is level 2: increase the number of threads by factor 'columns of C *
+// rows of C' OptDivisor: decrease the number of threads by factor 'divisor'
 // OptTeam: Use serial gemm inside a team of threads
 struct SerialTagOpt1 {};
 struct SerialBatchDim3TagOpt1 {};
@@ -124,7 +124,6 @@ struct TeamBatchDim3TagOptDivisor {};
 struct TeamTagOpt1 {};
 struct TeamBatchDim3TagOpt1 {};
 
-
 // gemm invoke table
 void (*do_gemm_invoke[LOOP_N][TEST_N])(options_t) = {
     {
@@ -132,35 +131,36 @@ void (*do_gemm_invoke[LOOP_N][TEST_N])(options_t) = {
         do_gemm_serial_batched, do_gemm_serial_batched_blocked,  // Serial
         NULL, NULL,                                              // Serial Opt1
         NULL, NULL,                                              // Serial SIMD
-        NULL,                                                    // Serial Compact MKL
-        NULL, NULL,                                              // Team
-        NULL, NULL,                                              // TeamVector
-        NULL, NULL,                                              // TeamSimd
-        NULL  // Serial Experiment
+        NULL,        // Serial Compact MKL
+        NULL, NULL,  // Team
+        NULL, NULL,  // TeamVector
+        NULL, NULL,  // TeamSimd
+        NULL         // Serial Experiment
     },
     {
-        NULL,                                             // BLAS
-        do_gemm_serial_batched_parallel,                  // Serial
+        NULL,                             // BLAS
+        do_gemm_serial_batched_parallel,  // Serial
         do_gemm_serial_batched_blocked_parallel,
-        do_gemm_serial_opt1_batched_parallel,             // Serial Opt1
+        do_gemm_serial_opt1_batched_parallel,  // Serial Opt1
         do_gemm_serial_opt1_batched_blocked_parallel,
-        do_gemm_serial_opt2_batched_parallel,             // Serial Opt2
+        do_gemm_serial_opt2_batched_parallel,  // Serial Opt2
         do_gemm_serial_opt2_batched_blocked_parallel,
-        do_gemm_serial_optteam_batched_parallel,          // Serial OptTeam
+        do_gemm_serial_optteam_batched_parallel,  // Serial OptTeam
         do_gemm_serial_optteam_batched_blocked_parallel,
-        do_gemm_serial_simd_batched_parallel,             // Serial SIMD
+        do_gemm_serial_simd_batched_parallel,  // Serial SIMD
         do_gemm_serial_simd_batched_blocked_parallel,
-        do_gemm_serial_batched_compact_mkl_parallel,      // Serial MKL
-        do_gemm_team_batched_parallel,                    // Team
+        do_gemm_serial_batched_compact_mkl_parallel,  // Serial MKL
+        do_gemm_team_batched_parallel,                // Team
         do_gemm_team_batched_blocked_parallel,
         do_gemm_team_opt1_batched_parallel,
         do_gemm_team_opt1_batched_blocked_parallel,
-        do_gemm_team_optdivisor_batched_blocked_parallel, // Team OptDivisor
+        do_gemm_team_optdivisor_batched_blocked_parallel,  // Team OptDivisor
         do_gemm_team_optdivisor_batched_parallel,
-        do_gemm_team_vector_batched_parallel, NULL,       // TeamVector
-        do_gemm_team_simd_batched_parallel,               // TeamSimd
+        do_gemm_team_vector_batched_parallel,
+        NULL,                                // TeamVector
+        do_gemm_team_simd_batched_parallel,  // TeamSimd
         do_gemm_team_simd_batched_blocked_parallel,
-        do_gemm_experiment_parallel                       // Parallel Experiment
+        do_gemm_experiment_parallel  // Parallel Experiment
     }};
 
 /*************************** Test types and defaults **************************/
@@ -256,7 +256,8 @@ struct gemm_args {
 typedef struct gemm_args gemm_args_t;
 
 static std::string gemm_csv_header_str =
-    "algorithm,vector_type,transAtransB,alpha,beta,team_size,vector_len,loop_type,A_dims,B_"
+    "algorithm,vector_type,transAtransB,alpha,beta,team_size,vector_len,loop_"
+    "type,A_dims,B_"
     "dims,C_dims,warm_up_n,"
     "iter,total_time(s),average_time(s),FLOPS,GFLOP/average_time(s)";
 
@@ -307,7 +308,8 @@ static void __gemm_output_csv_row(options_t options, gemm_args_t gemm_args,
 
   gflops = flops / 1e9;
 
-  options.out[0] << algo_name << "," << vtype << "," << options.blas_args.gemm.gemm_args << ","
+  options.out[0] << algo_name << "," << vtype << ","
+                 << options.blas_args.gemm.gemm_args << ","
                  << static_cast<double>(options.blas_args.gemm.alpha) << ","
                  << static_cast<double>(options.blas_args.gemm.beta) << ","
                  << ts << "," << vlen << "," << loop_e_str[options.loop] << ","
@@ -495,11 +497,14 @@ struct parallel_batched_gemm_range_policy {
     // Select next matrix everytime i is a new multiple of divisor
     auto batch_idx = i / divisor_;
     // Select col of B and C
-    auto col_idx   = i % divisor_;
+    auto col_idx = i % divisor_;
 
-    auto svA     = Kokkos::subview(gemm_args_.A, batch_idx, Kokkos::ALL(), Kokkos::ALL());
-    auto svB_col = Kokkos::subview(gemm_args_.B, batch_idx, Kokkos::ALL(), col_idx);
-    auto svC_col = Kokkos::subview(gemm_args_.C, batch_idx, Kokkos::ALL(), col_idx);
+    auto svA =
+        Kokkos::subview(gemm_args_.A, batch_idx, Kokkos::ALL(), Kokkos::ALL());
+    auto svB_col =
+        Kokkos::subview(gemm_args_.B, batch_idx, Kokkos::ALL(), col_idx);
+    auto svC_col =
+        Kokkos::subview(gemm_args_.C, batch_idx, Kokkos::ALL(), col_idx);
 
     KokkosBatched::SerialGemm<TransAType, TransBType, BlockingType>::invoke(
         gemm_args_.alpha, svA, svB_col, gemm_args_.beta, svC_col);
@@ -510,11 +515,14 @@ struct parallel_batched_gemm_range_policy {
     // Select next matrix everytime i is a new multiple of divisor
     auto batch_idx = i / divisor_;
     // Select col of B and C
-    auto col_idx   = i % divisor_;
+    auto col_idx = i % divisor_;
 
-    auto svA     = Kokkos::subview(gemm_args_.A, Kokkos::ALL(), Kokkos::ALL(), batch_idx);
-    auto svB_col = Kokkos::subview(gemm_args_.B, Kokkos::ALL(), col_idx, batch_idx);
-    auto svC_col = Kokkos::subview(gemm_args_.C, Kokkos::ALL(), col_idx, batch_idx);
+    auto svA =
+        Kokkos::subview(gemm_args_.A, Kokkos::ALL(), Kokkos::ALL(), batch_idx);
+    auto svB_col =
+        Kokkos::subview(gemm_args_.B, Kokkos::ALL(), col_idx, batch_idx);
+    auto svC_col =
+        Kokkos::subview(gemm_args_.C, Kokkos::ALL(), col_idx, batch_idx);
 
     KokkosBatched::SerialGemm<TransAType, TransBType, BlockingType>::invoke(
         gemm_args_.alpha, svA, svB_col, gemm_args_.beta, svC_col);
@@ -525,19 +533,23 @@ struct parallel_batched_gemm_range_policy {
     // Here, the batch_idx is strided by c_rows * c_cols
     auto batch_idx = i / divisor_;
     // For every batch, we need mod in [0, c_rows*c_cols-1]
-    auto mod       = i % divisor_; //ex: 2x2 -- 0,1,2,3
+    auto mod = i % divisor_;  // ex: 2x2 -- 0,1,2,3
     // For every mod, we need a column index in [0, c_cols-1]
-    auto col_idx   = mod % gemm_args_.C.extent(2); //ex: 2x2 -- 0,1,0,1
+    auto col_idx = mod % gemm_args_.C.extent(2);  // ex: 2x2 -- 0,1,0,1
     // For every mod, we need a row index in [0, c_rows-1]
-    auto row_idx   = mod / gemm_args_.C.extent(1); //ex: 2x2 -- 0,0,1,1
+    auto row_idx = mod / gemm_args_.C.extent(1);  // ex: 2x2 -- 0,0,1,1
 
-    auto svA_row = Kokkos::subview(gemm_args_.A, batch_idx, row_idx, Kokkos::ALL());
-    auto svB_col = Kokkos::subview(gemm_args_.B, batch_idx, Kokkos::ALL(), col_idx);
+    auto svA_row =
+        Kokkos::subview(gemm_args_.A, batch_idx, row_idx, Kokkos::ALL());
+    auto svB_col =
+        Kokkos::subview(gemm_args_.B, batch_idx, Kokkos::ALL(), col_idx);
     auto svC_ele = Kokkos::subview(gemm_args_.C, batch_idx, row_idx, col_idx);
 
     // TODO: Fix subview for svA_row and add back in TransAType.
-    KokkosBatched::SerialGemm<Trans::Transpose, TransBType, BlockingType>::invoke(
-        gemm_args_.alpha, svA_row, svB_col, gemm_args_.beta, svC_ele);
+    KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
+                              BlockingType>::invoke(gemm_args_.alpha, svA_row,
+                                                    svB_col, gemm_args_.beta,
+                                                    svC_ele);
   }
 
   KOKKOS_INLINE_FUNCTION
@@ -545,19 +557,23 @@ struct parallel_batched_gemm_range_policy {
     // Here, the batch_idx is strided by c_rows * c_cols
     auto batch_idx = i / divisor_;
     // For every batch, we need mod in [0, c_rows*c_cols-1]
-    auto mod       = i % divisor_; //ex: 2x2 -- 0,1,2,3
+    auto mod = i % divisor_;  // ex: 2x2 -- 0,1,2,3
     // For every mod, we need a column index in [0, c_cols-1]
-    auto col_idx   = mod % gemm_args_.C.extent(1); //ex: 2x2 -- 0,1,0,1
+    auto col_idx = mod % gemm_args_.C.extent(1);  // ex: 2x2 -- 0,1,0,1
     // For every mod, we need a row index in [0, c_rows-1]
-    auto row_idx   = mod / gemm_args_.C.extent(0); //ex: 2x2 -- 0,0,1,1
+    auto row_idx = mod / gemm_args_.C.extent(0);  // ex: 2x2 -- 0,0,1,1
 
-    auto svA_row = Kokkos::subview(gemm_args_.A, row_idx, Kokkos::ALL(), batch_idx);
-    auto svB_col = Kokkos::subview(gemm_args_.B, Kokkos::ALL(), col_idx, batch_idx);
+    auto svA_row =
+        Kokkos::subview(gemm_args_.A, row_idx, Kokkos::ALL(), batch_idx);
+    auto svB_col =
+        Kokkos::subview(gemm_args_.B, Kokkos::ALL(), col_idx, batch_idx);
     auto svC_ele = Kokkos::subview(gemm_args_.C, row_idx, col_idx, batch_idx);
 
     // TODO: Fix subview for svA_row and add back in TransAType.
-    KokkosBatched::SerialGemm<Trans::Transpose, TransBType, BlockingType>::invoke(
-        gemm_args_.alpha, svA_row, svB_col, gemm_args_.beta, svC_ele);
+    KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
+                              BlockingType>::invoke(gemm_args_.alpha, svA_row,
+                                                    svB_col, gemm_args_.beta,
+                                                    svC_ele);
   }
 
   KOKKOS_INLINE_FUNCTION
@@ -596,7 +612,6 @@ struct parallel_batched_gemm_range_policy {
     Kokkos::abort("SerialBatchDim3TagOptTeam not supported using RangePolicy.");
   }
 
-
   KOKKOS_INLINE_FUNCTION
   void operator()(const TeamTag &, const int &i) const {
     Kokkos::abort("TeamTag not supported using RangePolicy.");
@@ -624,7 +639,8 @@ struct parallel_batched_gemm_range_policy {
 
   KOKKOS_INLINE_FUNCTION
   void operator()(const TeamBatchDim3TagOptDivisor &, const int &i) const {
-    Kokkos::abort("TeamBatchDim3TagOptDivisor not supported using RangePolicy.");
+    Kokkos::abort(
+        "TeamBatchDim3TagOptDivisor not supported using RangePolicy.");
   }
 
   KOKKOS_INLINE_FUNCTION
@@ -654,7 +670,8 @@ struct parallel_batched_gemm {
   gemm_args_t gemm_args_;
   size_t divisor_;
 
-  parallel_batched_gemm(gemm_args_t gemm_args, size_t divisor = 1) : gemm_args_(gemm_args), divisor_(divisor) {}
+  parallel_batched_gemm(gemm_args_t gemm_args, size_t divisor = 1)
+      : gemm_args_(gemm_args), divisor_(divisor) {}
 
   KOKKOS_INLINE_FUNCTION
   void operator()(const SerialTag &, const MemberType &member) const {
@@ -680,106 +697,145 @@ struct parallel_batched_gemm {
 
   KOKKOS_INLINE_FUNCTION
   void operator()(const TeamTagOpt1 &, const MemberType &member) const {
-    auto i   = member.league_rank();
+    auto i = member.league_rank();
     // Select next matrix everytime i is a new multiple of divisor
     auto batch_idx = i / divisor_;
 
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(member,0,divisor_),[&](const int &col_idx) {
-      // Select col of B and C
-      auto svA     = Kokkos::subview(gemm_args_.A, batch_idx, Kokkos::ALL(), Kokkos::ALL());
-      auto svB_col = Kokkos::subview(gemm_args_.B, batch_idx, Kokkos::ALL(), col_idx);
-      auto svC_col = Kokkos::subview(gemm_args_.C, batch_idx, Kokkos::ALL(), col_idx);
+    Kokkos::parallel_for(
+        Kokkos::TeamThreadRange(member, 0, divisor_), [&](const int &col_idx) {
+          // Select col of B and C
+          auto svA = Kokkos::subview(gemm_args_.A, batch_idx, Kokkos::ALL(),
+                                     Kokkos::ALL());
+          auto svB_col =
+              Kokkos::subview(gemm_args_.B, batch_idx, Kokkos::ALL(), col_idx);
+          auto svC_col =
+              Kokkos::subview(gemm_args_.C, batch_idx, Kokkos::ALL(), col_idx);
 
-      KokkosBatched::SerialGemm<TransAType, TransBType, BlockingType>::invoke(
-          gemm_args_.alpha, svA, svB_col, gemm_args_.beta, svC_col);
-    });
+          KokkosBatched::SerialGemm<TransAType, TransBType,
+                                    BlockingType>::invoke(gemm_args_.alpha, svA,
+                                                          svB_col,
+                                                          gemm_args_.beta,
+                                                          svC_col);
+        });
   }
 
   KOKKOS_INLINE_FUNCTION
-  void operator()(const TeamBatchDim3TagOpt1 &, const MemberType &member) const {
-    auto i   = member.league_rank();
+  void operator()(const TeamBatchDim3TagOpt1 &,
+                  const MemberType &member) const {
+    auto i = member.league_rank();
     // Select next matrix everytime i is a new multiple of divisor
     auto batch_idx = i / divisor_;
 
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(member,0,divisor_),[&](const int &col_idx) {
-      // Select col of B and C
-      auto svA     = Kokkos::subview(gemm_args_.A, Kokkos::ALL(), Kokkos::ALL(), batch_idx);
-      auto svB_col = Kokkos::subview(gemm_args_.B, Kokkos::ALL(), col_idx, batch_idx);
-      auto svC_col = Kokkos::subview(gemm_args_.C, Kokkos::ALL(), col_idx, batch_idx);
+    Kokkos::parallel_for(
+        Kokkos::TeamThreadRange(member, 0, divisor_), [&](const int &col_idx) {
+          // Select col of B and C
+          auto svA = Kokkos::subview(gemm_args_.A, Kokkos::ALL(), Kokkos::ALL(),
+                                     batch_idx);
+          auto svB_col =
+              Kokkos::subview(gemm_args_.B, Kokkos::ALL(), col_idx, batch_idx);
+          auto svC_col =
+              Kokkos::subview(gemm_args_.C, Kokkos::ALL(), col_idx, batch_idx);
 
-      KokkosBatched::SerialGemm<TransAType, TransBType, BlockingType>::invoke(
-          gemm_args_.alpha, svA, svB_col, gemm_args_.beta, svC_col);
-    });
+          KokkosBatched::SerialGemm<TransAType, TransBType,
+                                    BlockingType>::invoke(gemm_args_.alpha, svA,
+                                                          svB_col,
+                                                          gemm_args_.beta,
+                                                          svC_col);
+        });
   }
 
   KOKKOS_INLINE_FUNCTION
   void operator()(const SerialTagOpt2 &, const MemberType &member) const {
-    auto i   = member.league_rank();
+    auto i = member.league_rank();
     // Here, the batch_idx is strided by c_rows * c_cols
     auto batch_idx = i / divisor_;
     // For every batch, we need mod in [0, c_rows*c_cols-1]
-    auto mod       = i % divisor_; //ex: 2x2 -- 0,1,2,3
+    auto mod = i % divisor_;  // ex: 2x2 -- 0,1,2,3
     // For every mod, we need a column index in [0, c_cols-1]
-    auto col_idx   = mod % gemm_args_.C.extent(2); //ex: 2x2 -- 0,1,0,1
+    auto col_idx = mod % gemm_args_.C.extent(2);  // ex: 2x2 -- 0,1,0,1
     // For every mod, we need a row index in [0, c_rows-1]
-    auto row_idx   = mod / gemm_args_.C.extent(1); //ex: 2x2 -- 0,0,1,1
+    auto row_idx = mod / gemm_args_.C.extent(1);  // ex: 2x2 -- 0,0,1,1
 
-    auto svA_row = Kokkos::subview(gemm_args_.A, batch_idx, row_idx, Kokkos::ALL());
-    auto svB_col = Kokkos::subview(gemm_args_.B, batch_idx, Kokkos::ALL(), col_idx);
+    auto svA_row =
+        Kokkos::subview(gemm_args_.A, batch_idx, row_idx, Kokkos::ALL());
+    auto svB_col =
+        Kokkos::subview(gemm_args_.B, batch_idx, Kokkos::ALL(), col_idx);
     auto svC_ele = Kokkos::subview(gemm_args_.C, batch_idx, row_idx, col_idx);
 
     // TODO: Fix subview for svA_row and add back in TransAType.
-    KokkosBatched::SerialGemm<Trans::Transpose, TransBType, BlockingType>::invoke(
-        gemm_args_.alpha, svA_row, svB_col, gemm_args_.beta, svC_ele);
+    KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
+                              BlockingType>::invoke(gemm_args_.alpha, svA_row,
+                                                    svB_col, gemm_args_.beta,
+                                                    svC_ele);
   }
 
   KOKKOS_INLINE_FUNCTION
-  void operator()(const SerialBatchDim3TagOpt2 &, const MemberType &member) const {
-    auto i   = member.league_rank();
+  void operator()(const SerialBatchDim3TagOpt2 &,
+                  const MemberType &member) const {
+    auto i = member.league_rank();
     // Here, the batch_idx is strided by c_rows * c_cols
     auto batch_idx = i / divisor_;
     // For every batch, we need mod in [0, c_rows*c_cols-1]
-    auto mod       = i % divisor_; //ex: 2x2 -- 0,1,2,3
+    auto mod = i % divisor_;  // ex: 2x2 -- 0,1,2,3
     // For every mod, we need a column index in [0, c_cols-1]
-    auto col_idx   = mod % gemm_args_.C.extent(1); //ex: 2x2 -- 0,1,0,1
+    auto col_idx = mod % gemm_args_.C.extent(1);  // ex: 2x2 -- 0,1,0,1
     // For every mod, we need a row index in [0, c_rows-1]
-    auto row_idx   = mod / gemm_args_.C.extent(0); //ex: 2x2 -- 0,0,1,1
+    auto row_idx = mod / gemm_args_.C.extent(0);  // ex: 2x2 -- 0,0,1,1
 
-    auto svA_row = Kokkos::subview(gemm_args_.A, row_idx, Kokkos::ALL(), batch_idx);
-    auto svB_col = Kokkos::subview(gemm_args_.B, Kokkos::ALL(), col_idx, batch_idx);
+    auto svA_row =
+        Kokkos::subview(gemm_args_.A, row_idx, Kokkos::ALL(), batch_idx);
+    auto svB_col =
+        Kokkos::subview(gemm_args_.B, Kokkos::ALL(), col_idx, batch_idx);
     auto svC_ele = Kokkos::subview(gemm_args_.C, row_idx, col_idx, batch_idx);
 
     // TODO: Fix subview for svA_row and add back in TransAType.
-    KokkosBatched::SerialGemm<Trans::Transpose, TransBType, BlockingType>::invoke(
-        gemm_args_.alpha, svA_row, svB_col, gemm_args_.beta, svC_ele);
+    KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
+                              BlockingType>::invoke(gemm_args_.alpha, svA_row,
+                                                    svB_col, gemm_args_.beta,
+                                                    svC_ele);
   }
 
   KOKKOS_INLINE_FUNCTION
   void operator()(const SerialTagOptTeam &, const MemberType &member) const {
-    auto i   = member.league_rank();
+    auto i = member.league_rank();
 
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, i*divisor_, i+divisor_),[&](const int &j) {
-      auto svA = Kokkos::subview(gemm_args_.A, j, Kokkos::ALL(), Kokkos::ALL());
-      auto svB = Kokkos::subview(gemm_args_.B, j, Kokkos::ALL(), Kokkos::ALL());
-      auto svC = Kokkos::subview(gemm_args_.C, j, Kokkos::ALL(), Kokkos::ALL());
+    Kokkos::parallel_for(
+        Kokkos::TeamThreadRange(member, i * divisor_, i + divisor_),
+        [&](const int &j) {
+          auto svA =
+              Kokkos::subview(gemm_args_.A, j, Kokkos::ALL(), Kokkos::ALL());
+          auto svB =
+              Kokkos::subview(gemm_args_.B, j, Kokkos::ALL(), Kokkos::ALL());
+          auto svC =
+              Kokkos::subview(gemm_args_.C, j, Kokkos::ALL(), Kokkos::ALL());
 
-    KokkosBatched::SerialGemm<TransAType, TransBType, BlockingType>::invoke(
-        gemm_args_.alpha, svA, svB, gemm_args_.beta, svC);
-    });
+          KokkosBatched::SerialGemm<TransAType, TransBType,
+                                    BlockingType>::invoke(gemm_args_.alpha, svA,
+                                                          svB, gemm_args_.beta,
+                                                          svC);
+        });
   }
 
   KOKKOS_INLINE_FUNCTION
-  void operator()(const SerialBatchDim3TagOptTeam &, const MemberType &member) const {
-    auto i   = member.league_rank();
+  void operator()(const SerialBatchDim3TagOptTeam &,
+                  const MemberType &member) const {
+    auto i = member.league_rank();
 
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, i*divisor_, i+divisor_),[&](const int &j) {
-      auto svA = Kokkos::subview(gemm_args_.A, Kokkos::ALL(), Kokkos::ALL(), j);
-      auto svB = Kokkos::subview(gemm_args_.B, Kokkos::ALL(), Kokkos::ALL(), j);
-      auto svC = Kokkos::subview(gemm_args_.C, Kokkos::ALL(), Kokkos::ALL(), j);
+    Kokkos::parallel_for(
+        Kokkos::TeamThreadRange(member, i * divisor_, i + divisor_),
+        [&](const int &j) {
+          auto svA =
+              Kokkos::subview(gemm_args_.A, Kokkos::ALL(), Kokkos::ALL(), j);
+          auto svB =
+              Kokkos::subview(gemm_args_.B, Kokkos::ALL(), Kokkos::ALL(), j);
+          auto svC =
+              Kokkos::subview(gemm_args_.C, Kokkos::ALL(), Kokkos::ALL(), j);
 
-    KokkosBatched::SerialGemm<TransAType, TransBType, BlockingType>::invoke(
-        gemm_args_.alpha, svA, svB, gemm_args_.beta, svC);
-    });
+          KokkosBatched::SerialGemm<TransAType, TransBType,
+                                    BlockingType>::invoke(gemm_args_.alpha, svA,
+                                                          svB, gemm_args_.beta,
+                                                          svC);
+        });
   }
 
   KOKKOS_INLINE_FUNCTION
@@ -808,29 +864,38 @@ struct parallel_batched_gemm {
 
   KOKKOS_INLINE_FUNCTION
   void operator()(const TeamTagOptDivisor &, const MemberType &member) const {
-    auto i   = divisor_ * member.league_rank();
+    auto i = divisor_ * member.league_rank();
     for (size_t j = 0; j < divisor_; j++) {
-      auto svA = Kokkos::subview(gemm_args_.A, i+j, Kokkos::ALL(), Kokkos::ALL());
-      auto svB = Kokkos::subview(gemm_args_.B, i+j, Kokkos::ALL(), Kokkos::ALL());
-      auto svC = Kokkos::subview(gemm_args_.C, i+j, Kokkos::ALL(), Kokkos::ALL());
+      auto svA =
+          Kokkos::subview(gemm_args_.A, i + j, Kokkos::ALL(), Kokkos::ALL());
+      auto svB =
+          Kokkos::subview(gemm_args_.B, i + j, Kokkos::ALL(), Kokkos::ALL());
+      auto svC =
+          Kokkos::subview(gemm_args_.C, i + j, Kokkos::ALL(), Kokkos::ALL());
 
       KokkosBatched::TeamGemm<MemberType, TransAType, TransBType,
-                              BlockingType>::invoke(member, gemm_args_.alpha, svA,
-                                                    svB, gemm_args_.beta, svC);
+                              BlockingType>::invoke(member, gemm_args_.alpha,
+                                                    svA, svB, gemm_args_.beta,
+                                                    svC);
     }
   }
 
   KOKKOS_INLINE_FUNCTION
-  void operator()(const TeamBatchDim3TagOptDivisor &, const MemberType &member) const {
-    auto i   = divisor_ * member.league_rank();
+  void operator()(const TeamBatchDim3TagOptDivisor &,
+                  const MemberType &member) const {
+    auto i = divisor_ * member.league_rank();
     for (size_t j = 0; j < divisor_; j++) {
-      auto svA = Kokkos::subview(gemm_args_.A, Kokkos::ALL(), Kokkos::ALL(), i+j);
-      auto svB = Kokkos::subview(gemm_args_.B, Kokkos::ALL(), Kokkos::ALL(), i+j);
-      auto svC = Kokkos::subview(gemm_args_.C, Kokkos::ALL(), Kokkos::ALL(), i+j);
+      auto svA =
+          Kokkos::subview(gemm_args_.A, Kokkos::ALL(), Kokkos::ALL(), i + j);
+      auto svB =
+          Kokkos::subview(gemm_args_.B, Kokkos::ALL(), Kokkos::ALL(), i + j);
+      auto svC =
+          Kokkos::subview(gemm_args_.C, Kokkos::ALL(), Kokkos::ALL(), i + j);
 
       KokkosBatched::TeamGemm<MemberType, TransAType, TransBType,
-                              BlockingType>::invoke(member, gemm_args_.alpha, svA,
-                                                    svB, gemm_args_.beta, svC);
+                              BlockingType>::invoke(member, gemm_args_.alpha,
+                                                    svA, svB, gemm_args_.beta,
+                                                    svC);
     }
   }
 
@@ -927,7 +992,8 @@ struct parallel_batched_gemm {
   }
 
   KOKKOS_INLINE_FUNCTION
-  void operator()(const SerialBatchDim3TagOpt1 &, const MemberType &member) const {
+  void operator()(const SerialBatchDim3TagOpt1 &,
+                  const MemberType &member) const {
     Kokkos::abort("SerialBatchDim3TagOpt1 not supported using RangePolicy.");
   }
 };
@@ -952,15 +1018,17 @@ void __do_gemm_parallel_batched_template_range_policy(options_t options,
   if (std::is_same<AlgoTag, SerialTagOpt1>::value ||
       std::is_same<AlgoTag, SerialBatchDim3TagOpt1>::value) {
     // NOTE: Intentionally leave AlgoTag at Opt1 on host for perf test
-    // NOTE: Intentionally stay at Opt1 even if batch_size >= backend_thread_threshold
+    // NOTE: Intentionally stay at Opt1 even if batch_size >=
+    // backend_thread_threshold
     divisor = gemm_args.dims.c.n;
     batch_size *= divisor;
   }
 
-    if (std::is_same<AlgoTag, SerialTagOpt2>::value ||
-        std::is_same<AlgoTag, SerialBatchDim3TagOpt2>::value) {
+  if (std::is_same<AlgoTag, SerialTagOpt2>::value ||
+      std::is_same<AlgoTag, SerialBatchDim3TagOpt2>::value) {
     // NOTE: Intentionally leave AlgoTag at Opt1 on host for perf test
-    // NOTE: Intentionally stay at Opt1 even if batch_size >= backend_thread_threshold
+    // NOTE: Intentionally stay at Opt1 even if batch_size >=
+    // backend_thread_threshold
     divisor = gemm_args.dims.c.n * gemm_args.dims.c.m;
     batch_size *= divisor;
   }
@@ -1035,9 +1103,11 @@ void __do_gemm_parallel_batched_template(options_t options,
                  simd_internal_vector_size;  // TODO: use bp.vector_len?
   }
 
-  if (std::is_same<AlgoTag, TeamTagOpt1>::value || std::is_same<AlgoTag, TeamBatchDim3TagOpt1>::value) {
+  if (std::is_same<AlgoTag, TeamTagOpt1>::value ||
+      std::is_same<AlgoTag, TeamBatchDim3TagOpt1>::value) {
     // NOTE: Intentionally leave AlgoTag at Opt1 on host for perf test
-    // NOTE: Intentionally stay at Opt1 even if batch_size >= backend_thread_threshold
+    // NOTE: Intentionally stay at Opt1 even if batch_size >=
+    // backend_thread_threshold
     divisor = gemm_args.dims.c.n;
     league_size *= divisor;
   }
@@ -1634,10 +1704,10 @@ void __do_gemm_parallel_experiment6(options_t options, gemm_args_t gemm_args) {
  * @var epsilon:  The tolerance to use when comparing.
  * @return true if the comparison fails and false if the comparison succeeds.
  */
-template<class ViewType>
+template <class ViewType>
 static inline bool __gemm_print_compare_failure(ViewType h_expected,
-                                                ViewType h_actual, int i,
-                                                int j, int k, double epsilon) {
+                                                ViewType h_actual, int i, int j,
+                                                int k, double epsilon) {
   STATUS;
   auto diff = static_cast<double>(Kokkos::Experimental::fabs(
       static_cast<double>(h_expected(i, j, k) - h_actual(i, j, k))));
@@ -1679,7 +1749,8 @@ static inline bool __gemm_do_compare(view_type_3d expected,
     for (size_t i = 0; i < h_expected.extent(0); i++) {
       for (size_t j = 0; j < h_expected.extent(1); j++) {
         for (size_t k = 0; k < h_expected.extent(2); k++) {
-          if (__gemm_print_compare_failure<decltype(h_expected)>(h_expected, h_actual, i, j, k, epsilon))
+          if (__gemm_print_compare_failure<decltype(h_expected)>(
+                  h_expected, h_actual, i, j, k, epsilon))
             return true;
         }
       }
@@ -1690,7 +1761,8 @@ static inline bool __gemm_do_compare(view_type_3d expected,
     for (size_t k = 0; k < h_expected.extent(2); k++) {
       for (size_t j = 0; j < h_expected.extent(1); j++) {
         for (size_t i = 0; i < h_expected.extent(0); i++) {
-          if (__gemm_print_compare_failure<decltype(h_expected)>(h_expected, h_actual, i, j, k, epsilon))
+          if (__gemm_print_compare_failure<decltype(h_expected)>(
+                  h_expected, h_actual, i, j, k, epsilon))
             return true;
         }
       }
@@ -1707,55 +1779,64 @@ static inline void __gemm_copy_simd_view_to_3d_view(gemm_simd_args_t src,
   using dst_scalar_type = typename dstViewType::value_type;
   using src_scalar_type = typename view_type_5d::value_type;
   size_t remainder, vector_batch_size, simd_batch_size, last_batch;
-  bool data_layout_same_as_3d_view = false;
-  typename dstViewType::HostMirror h_dst =
-      Kokkos::create_mirror_view(dst);
+  bool data_layout_same_as_3d_view       = false;
+  typename dstViewType::HostMirror h_dst = Kokkos::create_mirror_view(dst);
   typename view_type_4d::HostMirror h_src =
       Kokkos::create_mirror_view(src.mat_4d);
   Kokkos::deep_copy(h_src, src.mat_4d);
   Kokkos::fence();
 
   if (options.blas_args.batch_size_last_dim) {
-    remainder = dst.extent(2) % simd_internal_vector_size;
+    remainder         = dst.extent(2) % simd_internal_vector_size;
     vector_batch_size = src.ivec_4d.extent(0);
-    simd_batch_size = src.ivec_4d.extent(3);
-    last_batch = dst.extent(2);
-    if (std::is_same<default_layout, Kokkos::LayoutRight>::value && remainder == 0)
+    simd_batch_size   = src.ivec_4d.extent(3);
+    last_batch        = dst.extent(2);
+    if (std::is_same<default_layout, Kokkos::LayoutRight>::value &&
+        remainder == 0)
       data_layout_same_as_3d_view = true;
 
   } else {
-    remainder = dst.extent(0) % simd_internal_vector_size;
+    remainder         = dst.extent(0) % simd_internal_vector_size;
     vector_batch_size = src.ivec_4d.extent(3);
-    simd_batch_size = src.ivec_4d.extent(0);
-    last_batch = dst.extent(0);
-    if (std::is_same<default_layout, Kokkos::LayoutLeft>::value && remainder == 0)
+    simd_batch_size   = src.ivec_4d.extent(0);
+    last_batch        = dst.extent(0);
+    if (std::is_same<default_layout, Kokkos::LayoutLeft>::value &&
+        remainder == 0)
       data_layout_same_as_3d_view = true;
   }
 
-  // When the batch_size is a multiple of the simd_vector_size and the batch_size
-  // dimension is nearest to the simd_vector_size dimension, each 2-rank matrix
-  // lies in the correct location and the data can simply be cast to the 3d view.
+  // When the batch_size is a multiple of the simd_vector_size and the
+  // batch_size dimension is nearest to the simd_vector_size dimension, each
+  // 2-rank matrix lies in the correct location and the data can simply be cast
+  // to the 3d view.
   if (data_layout_same_as_3d_view) {
-    // We can just re-cast the data to the 3d view but we'll copy it for verification
+    // We can just re-cast the data to the 3d view but we'll copy it for
+    // verification
     memcpy(h_dst.data(), h_src.data(),
-          sizeof(dst_scalar_type) * dst.extent(0) * dst.extent(1) *
-              dst.extent(2));
+           sizeof(dst_scalar_type) * dst.extent(0) * dst.extent(1) *
+               dst.extent(2));
     Kokkos::deep_copy(dst, h_dst);
     Kokkos::fence();
     return;
   }
 
   // If the remainder is 0, we have simd_vector_size sub-batches to copy out...
-  // this is a bad data access pattern but for these perf_tests we will support it.
-  // If the remainder is non-zero, we have simd_vector_size sub-batches + remainder to
-  // copy out.
+  // this is a bad data access pattern but for these perf_tests we will support
+  // it. If the remainder is non-zero, we have simd_vector_size sub-batches +
+  // remainder to copy out.
   remainder += simd_internal_vector_size;
 
   // Views needed for slow manual copy
-  using h_view_type_5d = Kokkos::View<src_scalar_type *****, default_layout, Kokkos::HostSpace>;
-  using h_subview_type_2d = Kokkos::View<src_scalar_type **, Kokkos::LayoutStride, Kokkos::HostSpace>;
-  using h_subview_type_3d = Kokkos::View<src_scalar_type ***, Kokkos::LayoutStride, Kokkos::HostSpace>;
-  using h_subview_type_4d = Kokkos::View<src_scalar_type ****, Kokkos::LayoutStride, Kokkos::HostSpace>;
+  using h_view_type_5d =
+      Kokkos::View<src_scalar_type *****, default_layout, Kokkos::HostSpace>;
+  using h_subview_type_2d =
+      Kokkos::View<src_scalar_type **, Kokkos::LayoutStride, Kokkos::HostSpace>;
+  using h_subview_type_3d =
+      Kokkos::View<src_scalar_type ***, Kokkos::LayoutStride,
+                   Kokkos::HostSpace>;
+  using h_subview_type_4d =
+      Kokkos::View<src_scalar_type ****, Kokkos::LayoutStride,
+                   Kokkos::HostSpace>;
   h_view_type_5d h_src_raw;
   h_subview_type_4d h_sv0;
   h_subview_type_3d h_sv1;
@@ -1763,44 +1844,58 @@ static inline void __gemm_copy_simd_view_to_3d_view(gemm_simd_args_t src,
 
   // TODO: Clean everything below this point up...
   if (std::is_same<default_layout, Kokkos::LayoutRight>::value)
-    h_src_raw = h_view_type_5d((src_scalar_type *)h_src.data(), src.ivec_4d.extent(0), src.ivec_4d.extent(1), src.ivec_4d.extent(2), src.ivec_4d.extent(3), simd_internal_vector_size);
+    h_src_raw =
+        h_view_type_5d((src_scalar_type *)h_src.data(), src.ivec_4d.extent(0),
+                       src.ivec_4d.extent(1), src.ivec_4d.extent(2),
+                       src.ivec_4d.extent(3), simd_internal_vector_size);
   else
     h_src_raw = h_view_type_5d((src_scalar_type *)h_src.data(),
-                          simd_internal_vector_size, src.ivec_4d.extent(0),
-                          src.ivec_4d.extent(1), src.ivec_4d.extent(2),
-                          src.ivec_4d.extent(3));
+                               simd_internal_vector_size, src.ivec_4d.extent(0),
+                               src.ivec_4d.extent(1), src.ivec_4d.extent(2),
+                               src.ivec_4d.extent(3));
 
   // The below loops copies each corresponding 2-rank matrix within the simd
   // view back to the 3-rank view.
   for (size_t simd_internal_vec_idx = 0; simd_internal_vec_idx < remainder;
-        simd_internal_vec_idx++) {
+       simd_internal_vec_idx++) {
     if (std::is_same<default_layout, Kokkos::LayoutRight>::value)
-      h_sv0 = Kokkos::subview(h_src_raw, Kokkos::ALL(), Kokkos::ALL(), Kokkos::ALL(), Kokkos::ALL(), simd_internal_vec_idx);
+      h_sv0 =
+          Kokkos::subview(h_src_raw, Kokkos::ALL(), Kokkos::ALL(),
+                          Kokkos::ALL(), Kokkos::ALL(), simd_internal_vec_idx);
     else
-      h_sv0 = Kokkos::subview(h_src_raw, simd_internal_vec_idx, Kokkos::ALL(), Kokkos::ALL(), Kokkos::ALL(), Kokkos::ALL());
+      h_sv0 = Kokkos::subview(h_src_raw, simd_internal_vec_idx, Kokkos::ALL(),
+                              Kokkos::ALL(), Kokkos::ALL(), Kokkos::ALL());
 
-    for (size_t vector_batch_idx = 0;
-          vector_batch_idx < vector_batch_size; vector_batch_idx++) {
+    for (size_t vector_batch_idx = 0; vector_batch_idx < vector_batch_size;
+         vector_batch_idx++) {
       if (options.blas_args.batch_size_last_dim)
-        h_sv1 = Kokkos::subview(h_sv0, vector_batch_idx, Kokkos::ALL(), Kokkos::ALL(), Kokkos::ALL());
+        h_sv1 = Kokkos::subview(h_sv0, vector_batch_idx, Kokkos::ALL(),
+                                Kokkos::ALL(), Kokkos::ALL());
       else
-        h_sv1 = Kokkos::subview(h_sv0, Kokkos::ALL(), Kokkos::ALL(), Kokkos::ALL(), vector_batch_idx);
+        h_sv1 = Kokkos::subview(h_sv0, Kokkos::ALL(), Kokkos::ALL(),
+                                Kokkos::ALL(), vector_batch_idx);
       for (size_t simd_batch_size_idx = 0;
-            simd_batch_size_idx < simd_batch_size;
-            simd_batch_size_idx++) {
+           simd_batch_size_idx < simd_batch_size; simd_batch_size_idx++) {
         if (options.blas_args.batch_size_last_dim)
-          h_sv2 = Kokkos::subview(h_sv1, Kokkos::ALL(), Kokkos::ALL(), simd_batch_size_idx);
+          h_sv2 = Kokkos::subview(h_sv1, Kokkos::ALL(), Kokkos::ALL(),
+                                  simd_batch_size_idx);
         else
-          h_sv2 = Kokkos::subview(h_sv1, simd_batch_size_idx, Kokkos::ALL(), Kokkos::ALL());
+          h_sv2 = Kokkos::subview(h_sv1, simd_batch_size_idx, Kokkos::ALL(),
+                                  Kokkos::ALL());
         for (size_t m = 0; m < src.ivec_4d.extent(1); m++) {
           for (size_t n = 0; n < src.ivec_4d.extent(2); n++) {
             if (options.blas_args.batch_size_last_dim)
-              h_dst(m, n, simd_internal_vec_idx + simd_batch_size_idx + vector_batch_idx) = h_sv2(m, n);
+              h_dst(m, n,
+                    simd_internal_vec_idx + simd_batch_size_idx +
+                        vector_batch_idx) = h_sv2(m, n);
             else
-              h_dst(simd_internal_vec_idx + simd_batch_size_idx + vector_batch_idx, m, n) = h_sv2(m, n);
+              h_dst(simd_internal_vec_idx + simd_batch_size_idx +
+                        vector_batch_idx,
+                    m, n) = h_sv2(m, n);
           }
         }
-        if (simd_internal_vec_idx + simd_batch_size_idx + vector_batch_idx == last_batch - 1)
+        if (simd_internal_vec_idx + simd_batch_size_idx + vector_batch_idx ==
+            last_batch - 1)
           goto out;
       }
     }
@@ -2188,12 +2283,13 @@ void do_gemm_serial_opt1_batched_parallel(options_t options) {
   if (options.blas_args.batch_size_last_dim)
     __do_loop_and_invoke(
         options,
-        __do_gemm_parallel_batched<SerialBatchDim3TagOpt1, Algo::Gemm::Unblocked,
-                                   default_device>);
+        __do_gemm_parallel_batched<SerialBatchDim3TagOpt1,
+                                   Algo::Gemm::Unblocked, default_device>);
   else
     __do_loop_and_invoke(
-        options, __do_gemm_parallel_batched<SerialTagOpt1, Algo::Gemm::Unblocked,
-                                            default_device>);
+        options,
+        __do_gemm_parallel_batched<SerialTagOpt1, Algo::Gemm::Unblocked,
+                                   default_device>);
   return;
 }
 
@@ -2216,12 +2312,13 @@ void do_gemm_serial_opt2_batched_parallel(options_t options) {
   if (options.blas_args.batch_size_last_dim)
     __do_loop_and_invoke(
         options,
-        __do_gemm_parallel_batched<SerialBatchDim3TagOpt2, Algo::Gemm::Unblocked,
-                                   default_device>);
+        __do_gemm_parallel_batched<SerialBatchDim3TagOpt2,
+                                   Algo::Gemm::Unblocked, default_device>);
   else
     __do_loop_and_invoke(
-        options, __do_gemm_parallel_batched<SerialTagOpt2, Algo::Gemm::Unblocked,
-                                            default_device>);
+        options,
+        __do_gemm_parallel_batched<SerialTagOpt2, Algo::Gemm::Unblocked,
+                                   default_device>);
   return;
 }
 
@@ -2244,12 +2341,13 @@ void do_gemm_serial_optteam_batched_parallel(options_t options) {
   if (options.blas_args.batch_size_last_dim)
     __do_loop_and_invoke(
         options,
-        __do_gemm_parallel_batched<SerialBatchDim3TagOptTeam, Algo::Gemm::Unblocked,
-                                   default_device>);
+        __do_gemm_parallel_batched<SerialBatchDim3TagOptTeam,
+                                   Algo::Gemm::Unblocked, default_device>);
   else
     __do_loop_and_invoke(
-        options, __do_gemm_parallel_batched<SerialTagOptTeam, Algo::Gemm::Unblocked,
-                                            default_device>);
+        options,
+        __do_gemm_parallel_batched<SerialTagOptTeam, Algo::Gemm::Unblocked,
+                                   default_device>);
   return;
 }
 
@@ -2258,12 +2356,13 @@ void do_gemm_serial_optteam_batched_blocked_parallel(options_t options) {
   if (options.blas_args.batch_size_last_dim)
     __do_loop_and_invoke(
         options,
-        __do_gemm_parallel_batched<SerialBatchDim3TagOptTeam, Algo::Gemm::Blocked,
-                                   default_device>);
+        __do_gemm_parallel_batched<SerialBatchDim3TagOptTeam,
+                                   Algo::Gemm::Blocked, default_device>);
   else
     __do_loop_and_invoke(
-        options, __do_gemm_parallel_batched<SerialTagOptTeam, Algo::Gemm::Blocked,
-                                            default_device>);
+        options,
+        __do_gemm_parallel_batched<SerialTagOptTeam, Algo::Gemm::Blocked,
+                                   default_device>);
   return;
 }
 
@@ -2397,12 +2496,13 @@ void do_gemm_team_optdivisor_batched_parallel(options_t options) {
   if (options.blas_args.batch_size_last_dim)
     __do_loop_and_invoke(
         options,
-        __do_gemm_parallel_batched<TeamBatchDim3TagOptDivisor, Algo::Gemm::Unblocked,
-                                   default_device>);
+        __do_gemm_parallel_batched<TeamBatchDim3TagOptDivisor,
+                                   Algo::Gemm::Unblocked, default_device>);
   else
     __do_loop_and_invoke(
-        options, __do_gemm_parallel_batched<TeamTagOptDivisor, Algo::Gemm::Unblocked,
-                                            default_device>);
+        options,
+        __do_gemm_parallel_batched<TeamTagOptDivisor, Algo::Gemm::Unblocked,
+                                   default_device>);
   return;
 }
 
@@ -2411,12 +2511,13 @@ void do_gemm_team_optdivisor_batched_blocked_parallel(options_t options) {
   if (options.blas_args.batch_size_last_dim)
     __do_loop_and_invoke(
         options,
-        __do_gemm_parallel_batched<TeamBatchDim3TagOptDivisor, Algo::Gemm::Blocked,
-                                   default_device>);
+        __do_gemm_parallel_batched<TeamBatchDim3TagOptDivisor,
+                                   Algo::Gemm::Blocked, default_device>);
   else
     __do_loop_and_invoke(
-        options, __do_gemm_parallel_batched<TeamTagOptDivisor, Algo::Gemm::Blocked,
-                                            default_device>);
+        options,
+        __do_gemm_parallel_batched<TeamTagOptDivisor, Algo::Gemm::Blocked,
+                                   default_device>);
   return;
 }
 

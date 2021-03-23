@@ -221,9 +221,12 @@ static void __print_help_blas3_perf_test() {
       DEFAULT_VERIFY);
 
   printf("\t-x, --divisor=DIVISOR\n");
-  printf("\t\tDivisor selection. Reduces league_size for team functions (untimed)\n");
   printf(
-      "\t\t\tValid values for DIVISOR are any positive integer. (default: %d)\n",
+      "\t\tDivisor selection. Reduces league_size for team functions "
+      "(untimed)\n");
+  printf(
+      "\t\t\tValid values for DIVISOR are any positive integer. (default: "
+      "%d)\n",
       DEFAULT_VERIFY);
 }
 
@@ -286,9 +289,9 @@ int main(int argc, char **argv) {
   options.blas_args.gemm.alpha     = DEFAULT_GEMM_ALPHA;
   options.blas_args.gemm.beta      = DEFAULT_GEMM_BETA;
 
-  while (
-      (ret = getopt_long(argc, argv, "ht:l:b:e:s:w:i:o:a:c:r:g:z:n:k:u:p:d:v:x:",
-                         long_options, &option_idx)) != -1) {
+  while ((ret = getopt_long(argc, argv,
+                            "ht:l:b:e:s:w:i:o:a:c:r:g:z:n:k:u:p:d:v:x:",
+                            long_options, &option_idx)) != -1) {
     switch (ret) {
       case 'h': __print_help_blas3_perf_test(); return 0;
       case 't':
@@ -436,9 +439,15 @@ int main(int argc, char **argv) {
     exit(-EINVAL);
   }
 
-  if (options.blas_args.divisor > 1 && !(options.test == BATCHED_TEAM_OPTDIVISOR || options.test == BATCHED_TEAM_OPTDIVISOR_BLOCKED || options.test == BATCHED_SERIAL_OPT_TEAM || options.test == BATCHED_SERIAL_OPT_TEAM_BLOCKED)) {
-    fprintf(stderr, "ERROR: divisor=%d but \"optdivisor\" test not selected. Try --help.\n",
-            options.blas_args.divisor);
+  if (options.blas_args.divisor > 1 &&
+      !(options.test == BATCHED_TEAM_OPTDIVISOR ||
+        options.test == BATCHED_TEAM_OPTDIVISOR_BLOCKED ||
+        options.test == BATCHED_SERIAL_OPT_TEAM ||
+        options.test == BATCHED_SERIAL_OPT_TEAM_BLOCKED)) {
+    fprintf(
+        stderr,
+        "ERROR: divisor=%d but \"optdivisor\" test not selected. Try --help.\n",
+        options.blas_args.divisor);
     exit(-EINVAL);
   }
 
