@@ -798,9 +798,11 @@ struct parallel_batched_gemm {
   KOKKOS_INLINE_FUNCTION
   void operator()(const SerialTagOptTeam &, const MemberType &member) const {
     auto i = member.league_rank();
+    auto start = i * divisor_;
+    auto end   = start + divisor_;
 
     Kokkos::parallel_for(
-        Kokkos::TeamThreadRange(member, i * divisor_, i + divisor_),
+        Kokkos::TeamThreadRange(member, start, end),
         [&](const int &j) {
           auto svA =
               Kokkos::subview(gemm_args_.A, j, Kokkos::ALL(), Kokkos::ALL());
@@ -820,9 +822,11 @@ struct parallel_batched_gemm {
   void operator()(const SerialBatchDim3TagOptTeam &,
                   const MemberType &member) const {
     auto i = member.league_rank();
+    auto start = i * divisor_; // 0, 2, 4
+    auto end   = start + divisor_; // 2, 4, 6
 
     Kokkos::parallel_for(
-        Kokkos::TeamThreadRange(member, i * divisor_, i + divisor_),
+        Kokkos::TeamThreadRange(member, start, end),
         [&](const int &j) {
           auto svA =
               Kokkos::subview(gemm_args_.A, Kokkos::ALL(), Kokkos::ALL(), j);
