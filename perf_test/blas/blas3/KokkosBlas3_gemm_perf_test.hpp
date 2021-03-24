@@ -1797,7 +1797,7 @@ static inline void __gemm_copy_simd_view_to_3d_view(gemm_simd_args_t src,
     simd_batch_size   = src.ivec_4d.extent(3);
     last_batch        = dst.extent(2);
     if (std::is_same<default_layout, Kokkos::LayoutRight>::value &&
-        remainder == 0)
+        remainder == 0 && false)
       data_layout_same_as_3d_view = true;
 
   } else {
