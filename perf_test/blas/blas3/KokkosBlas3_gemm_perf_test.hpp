@@ -537,7 +537,7 @@ struct parallel_batched_gemm_range_policy {
     // For every mod, we need a column index in [0, c_cols-1]
     auto col_idx = mod % gemm_args_.C.extent(2);  // ex: 2x2 -- 0,1,0,1
     // For every mod, we need a row index in [0, c_rows-1]
-    auto row_idx = mod / gemm_args_.C.extent(1);  // ex: 2x2 -- 0,0,1,1
+    auto row_idx = mod / gemm_args_.A.extent(2);  // ex: 1x2 -- 0,0,1,1
 
     auto svA_row =
         Kokkos::subview(gemm_args_.A, batch_idx, row_idx, Kokkos::ALL());
@@ -561,7 +561,7 @@ struct parallel_batched_gemm_range_policy {
     // For every mod, we need a column index in [0, c_cols-1]
     auto col_idx = mod % gemm_args_.C.extent(1);  // ex: 2x2 -- 0,1,0,1
     // For every mod, we need a row index in [0, c_rows-1]
-    auto row_idx = mod / gemm_args_.C.extent(0);  // ex: 2x2 -- 0,0,1,1
+    auto row_idx = mod / gemm_args_.A.extent(1);  // ex: 1x2 -- 0,0,1,1
 
     auto svA_row =
         Kokkos::subview(gemm_args_.A, row_idx, Kokkos::ALL(), batch_idx);
@@ -695,6 +695,7 @@ struct parallel_batched_gemm {
         gemm_args_.alpha, svA, svB, gemm_args_.beta, svC);
   }
 
+  // TODO: Why is TeamTagOpt1 incorrect?
   KOKKOS_INLINE_FUNCTION
   void operator()(const TeamTagOpt1 &, const MemberType &member) const {
     auto i = member.league_rank();
@@ -1965,6 +1966,8 @@ static inline void __gemm_do_verify(options_t options, gemm_args_t gemm_args,
     Kokkos::deep_copy(A_expected, gemm_args.A);
     Kokkos::deep_copy(B_expected, gemm_args.B);
 
+    //printf("%lux%lux%lu", C_expected.extent(0), C_expected.extent(1), C_expected.extent(2));
+    //exit(1);
     Kokkos::fence();  // Ensure that deep_copy has completed
 
     // Check that initial values match
