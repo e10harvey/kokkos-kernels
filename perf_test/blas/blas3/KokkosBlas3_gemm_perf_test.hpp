@@ -61,6 +61,32 @@
 
 //#define GEMM_PERF_TEST_DEBUG
 
+#if 0
+// Source: https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#wmma-example
+#include <mma.h>
+__device__ void wmma_ker(half *a, half *b, half *c) {
+  // Declare the fragments
+  nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 16, 16, 16, half, nvcuda::wmma::col_major> a_frag;
+  nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 16, 16, 16, half, nvcuda::wmma::row_major> b_frag;
+  nvcuda::wmma::fragment<nvcuda::wmma::accumulator, 16, 16, 16, half> c_frag;
+
+  // Initialize the output to c
+  //nvcuda::wmma::fill_fragment(c_frag, c);
+
+  // Load the inputs
+  nvcuda::wmma::load_matrix_sync(a_frag, a, 16);
+  nvcuda::wmma::load_matrix_sync(b_frag, b, 16);
+  nvcuda::wmma::load_matrix_sync(c_frag, c, 16, nvcuda::wmma::mem_row_major);
+
+
+  // Perform the matrix multiplication
+  nvcuda::wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
+
+  // Store the output
+  nvcuda::wmma::store_matrix_sync(c, c_frag, 16, nvcuda::wmma::mem_row_major);
+}
+#endif
+
 // Forward declarations
 void do_gemm_serial_blas(options_t options);
 void do_gemm_serial_batched(options_t options);
@@ -472,14 +498,15 @@ struct parallel_batched_gemm_range_policy {
   parallel_batched_gemm_range_policy(gemm_args_t gemm_args, size_t divisor = 1)
       : gemm_args_(gemm_args), divisor_(divisor) {}
 
-  KOKKOS_INLINE_FUNCTION
+  __device__
   void operator()(const SerialTag &, const int &i) const {
-    auto svA = Kokkos::subview(gemm_args_.A, i, Kokkos::ALL(), Kokkos::ALL());
-    auto svB = Kokkos::subview(gemm_args_.B, i, Kokkos::ALL(), Kokkos::ALL());
-    auto svC = Kokkos::subview(gemm_args_.C, i, Kokkos::ALL(), Kokkos::ALL());
+    auto svA = Kokkos::subview(gemm_args_.A, i, Kokkos::ALL(), Kokkos::ALL()); // m x k = 16 x 16
+    auto svB = Kokkos::subview(gemm_args_.B, i, Kokkos::ALL(), Kokkos::ALL()); // k x n = 16 x 16
+    auto svC = Kokkos::subview(gemm_args_.C, i, Kokkos::ALL(), Kokkos::ALL()); // m x n = 16 x 16
 
+    //wmma_ker((half *) svA.data(), (half *) svB.data(), (half *) svC.data());
     KokkosBatched::SerialGemm<TransAType, TransBType, BlockingType>::invoke(
-        gemm_args_.alpha, svA, svB, gemm_args_.beta, svC);
+       gemm_args_.alpha, svA, svB, gemm_args_.beta, svC);
   }
 
   KOKKOS_INLINE_FUNCTION
