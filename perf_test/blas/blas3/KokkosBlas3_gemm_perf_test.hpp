@@ -498,7 +498,8 @@ struct parallel_batched_gemm_range_policy {
   parallel_batched_gemm_range_policy(gemm_args_t gemm_args, size_t divisor = 1)
       : gemm_args_(gemm_args), divisor_(divisor) {}
 
-  __device__
+  //__device__
+  KOKKOS_INLINE_FUNCTION
   void operator()(const SerialTag &, const int &i) const {
     auto svA = Kokkos::subview(gemm_args_.A, i, Kokkos::ALL(), Kokkos::ALL()); // m x k = 16 x 16
     auto svB = Kokkos::subview(gemm_args_.B, i, Kokkos::ALL(), Kokkos::ALL()); // k x n = 16 x 16
