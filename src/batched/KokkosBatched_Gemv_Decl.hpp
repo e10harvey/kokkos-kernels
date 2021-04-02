@@ -26,10 +26,7 @@ namespace KokkosBatched {
            const AViewType &A,
            const xViewType &x,
            const ScalarType beta,
-           const yViewType &y) {
-      assert(false && "Error: encounter dummy impl");
-      return 0;
-    }
+           const yViewType &y);
   };
     
   ///

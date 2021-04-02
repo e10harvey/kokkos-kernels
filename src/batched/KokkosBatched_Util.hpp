@@ -265,6 +265,9 @@ namespace KokkosBatched {
       struct Unblocked {
         static const char* name() { return "Unblocked"; }
       };
+      struct UnblockedDot {
+        static const char* name() { return "UnblockedDot"; }
+      };
       struct Blocked {
         static const char* name() { return "Blocked"; }
         // TODO:: for now harwire the blocksizes; this should reflect
@@ -304,6 +307,7 @@ namespace KokkosBatched {
     };
 
     using Gemm = Level3;
+    using GemmDot = Level3;
     using Trsm = Level3;
     using Trmm = Level3;
     using Trtri = Level3;

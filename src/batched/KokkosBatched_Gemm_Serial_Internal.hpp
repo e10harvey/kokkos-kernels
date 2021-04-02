@@ -30,7 +30,7 @@ namespace KokkosBatched {
            const ScalarType beta,
            /**/  ValueType *__restrict__ C, const int cs0, const int cs1);
   };
-        
+
   template<>
   template<typename ScalarType,
            typename ValueType>
@@ -70,6 +70,29 @@ namespace KokkosBatched {
         }
       }
     }
+    return 0;
+  }
+        
+  template<>
+  template<typename ScalarType,
+           typename ValueType>
+  KOKKOS_INLINE_FUNCTION
+  int
+  SerialGemmInternal<Algo::Gemm::UnblockedDot>::
+  invoke(const int m, const int n, const int k,
+         const ScalarType alpha, 
+         const ValueType *__restrict__ A, const int as0, const int as1,
+         const ValueType *__restrict__ B, const int bs0, const int bs1,
+         const ScalarType beta,
+         /**/  ValueType *__restrict__ C, const int cs0, const int cs1) {
+    // C = beta C + alpha A B
+    // C (m x n), A(m x k), B(k x n)
+    int i = 0;
+    printf("as0=%d,as1=%d,bs0=%d,bs1=%d,cs0=%d,cs1=%d\n",as0,as1,bs0,bs1,cs0,cs1);
+    ScalarType dp = alpha * A[i] * B[i];
+    for (i = 1; i < k; i++)
+      dp += alpha * A[i] * B[i];
+    C[0] = beta * C[0] + dp;
     return 0;
   }
 
