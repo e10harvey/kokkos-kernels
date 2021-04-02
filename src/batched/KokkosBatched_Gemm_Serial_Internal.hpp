@@ -87,12 +87,12 @@ namespace KokkosBatched {
          /**/  ValueType *__restrict__ C, const int cs0, const int cs1) {
     // C = beta C + alpha A B
     // C (m x n), A(m x k), B(k x n)
+    //printf("as0=%d,as1=%d,bs0=%d,bs1=%d,cs0=%d,cs1=%d\n",as0,as1,bs0,bs1,cs0,cs1);
     int i = 0;
-    printf("as0=%d,as1=%d,bs0=%d,bs1=%d,cs0=%d,cs1=%d\n",as0,as1,bs0,bs1,cs0,cs1);
-    ScalarType dp = alpha * A[i] * B[i];
-    for (i = 1; i < k; i++)
-      dp += alpha * A[i] * B[i];
-    C[0] = beta * C[0] + dp;
+    ScalarType dp = C[0] * beta;//alpha * A[i] * B[i];
+    for (i = 0; i < k; i++)
+      dp += alpha * A[i*as0] * B[i*bs0];
+    C[0] = dp;
     return 0;
   }
 
