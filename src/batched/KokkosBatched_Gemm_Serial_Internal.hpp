@@ -94,7 +94,7 @@ namespace KokkosBatched {
       const ScalarType tA = alpha * A[i*as0];
       bp += tA * B[i*bs0];
     }
-    C[0] = bp
+    C[0] = bp;
     return 0;
   }
 
