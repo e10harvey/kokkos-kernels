@@ -53,8 +53,6 @@
 
 #include "KokkosBatched_Gemm_Decl.hpp"
 #include "KokkosBatched_Gemm_Serial_Impl.hpp"
-#include "KokkosBatched_Gemv_Decl.hpp"
-#include "KokkosBatched_Gemv_Serial_Impl.hpp"
 //#include "KokkosBatched_Gemm_Team_Impl.hpp"
 //#include "KokkosBatched_Gemm_TeamVector_Impl.hpp"
 #include "KokkosBatched_Util.hpp"
@@ -536,10 +534,8 @@ struct parallel_batched_gemm_range_policy {
     auto svC_col =
         Kokkos::subview(gemm_args_.C, batch_idx, Kokkos::ALL(), col_idx);
 
-    /* KokkosBatched::SerialGemm<TransAType, TransBType, BlockingType>::invoke(
-        gemm_args_.alpha, svA, svB_col, gemm_args_.beta, svC_col); */
-    // NOTE: Gemv transpose is only for A!
-    KokkosBatched::SerialGemv<TransAType,BlockingType>::invoke(gemm_args_.alpha, svA, svB_col, gemm_args_.beta, svC_col);
+    KokkosBatched::SerialGemm<TransAType, TransBType, BlockingType>::invoke(
+        gemm_args_.alpha, svA, svB_col, gemm_args_.beta, svC_col);
   }
 
   KOKKOS_INLINE_FUNCTION
@@ -556,10 +552,8 @@ struct parallel_batched_gemm_range_policy {
     auto svC_col =
         Kokkos::subview(gemm_args_.C, Kokkos::ALL(), col_idx, batch_idx);
 
-    /* KokkosBatched::SerialGemm<TransAType, TransBType, BlockingType>::invoke(
-        gemm_args_.alpha, svA, svB_col, gemm_args_.beta, svC_col); */
-    // NOTE: Gemv transpose is only for A!
-    KokkosBatched::SerialGemv<TransAType,BlockingType>::invoke(gemm_args_.alpha, svA, svB_col, gemm_args_.beta, svC_col);
+    KokkosBatched::SerialGemm<TransAType, TransBType, BlockingType>::invoke(
+        gemm_args_.alpha, svA, svB_col, gemm_args_.beta, svC_col);
   }
 
   KOKKOS_INLINE_FUNCTION
@@ -580,14 +574,10 @@ struct parallel_batched_gemm_range_policy {
     auto svC_ele = Kokkos::subview(gemm_args_.C, batch_idx, row_idx, col_idx);
 
     // TODO: Fix subview for svA_row and add back in TransAType.
-    /* KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
+    KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
                               BlockingType>::invoke(gemm_args_.alpha, svA_row,
                                                     svB_col, gemm_args_.beta,
-                                                    svC_ele); */
-    KokkosBatched::SerialGemm<Trans::NoTranspose, Trans::NoTranspose,
-                              Algo::Gemm::UnblockedDot>::invoke(gemm_args_.alpha, svA_row,
-                                                                svB_col, gemm_args_.beta,
-                                                                svC_ele);
+                                                    svC_ele);
   }
 
   KOKKOS_INLINE_FUNCTION
@@ -608,14 +598,10 @@ struct parallel_batched_gemm_range_policy {
     auto svC_ele = Kokkos::subview(gemm_args_.C, row_idx, col_idx, batch_idx);
 
     // TODO: Fix subview for svA_row and add back in TransAType.
-    /* KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
+    KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
                               BlockingType>::invoke(gemm_args_.alpha, svA_row,
                                                     svB_col, gemm_args_.beta,
-                                                    svC_ele); */
-    KokkosBatched::SerialGemm<Trans::NoTranspose, Trans::NoTranspose,
-                              Algo::Gemm::UnblockedDot>::invoke(gemm_args_.alpha, svA_row,
-                                                                svB_col, gemm_args_.beta,
-                                                                svC_ele);
+                                                    svC_ele);
   }
 
   KOKKOS_INLINE_FUNCTION
@@ -806,14 +792,10 @@ struct parallel_batched_gemm {
     auto svC_ele = Kokkos::subview(gemm_args_.C, batch_idx, row_idx, col_idx);
 
     // TODO: Fix subview for svA_row and add back in TransAType.
-    /* KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
+    KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
                               BlockingType>::invoke(gemm_args_.alpha, svA_row,
                                                     svB_col, gemm_args_.beta,
-                                                    svC_ele); */
-    KokkosBatched::SerialGemm<Trans::NoTranspose, Trans::NoTranspose,
-                              Algo::Gemm::UnblockedDot>::invoke(gemm_args_.alpha+20, svA_row,
-                                                                svB_col, gemm_args_.beta,
-                                                                svC_ele);
+                                                    svC_ele);
   }
 
   KOKKOS_INLINE_FUNCTION
@@ -836,14 +818,10 @@ struct parallel_batched_gemm {
     auto svC_ele = Kokkos::subview(gemm_args_.C, row_idx, col_idx, batch_idx);
 
     // TODO: Fix subview for svA_row and add back in TransAType.
-    /* KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
+    KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
                               BlockingType>::invoke(gemm_args_.alpha, svA_row,
                                                     svB_col, gemm_args_.beta,
-                                                    svC_ele); */
-    KokkosBatched::SerialGemm<Trans::NoTranspose, Trans::NoTranspose,
-                              Algo::Gemm::UnblockedDot>::invoke(gemm_args_.alpha+20, svA_row,
-                                                                svB_col, gemm_args_.beta,
-                                                                svC_ele);
+                                                    svC_ele);
   }
 
   KOKKOS_INLINE_FUNCTION
@@ -2341,11 +2319,11 @@ void do_gemm_serial_opt1_batched_parallel(options_t options) {
     __do_loop_and_invoke(
         options,
         __do_gemm_parallel_batched<SerialBatchDim3TagOpt1,
-                                   Algo::Gemv::Unblocked, default_device>);
+                                   Algo::Gemm::Unblocked, default_device>);
   else
     __do_loop_and_invoke(
         options,
-        __do_gemm_parallel_batched<SerialTagOpt1, Algo::Gemv::Unblocked,
+        __do_gemm_parallel_batched<SerialTagOpt1, Algo::Gemm::Unblocked,
                                    default_device>);
   return;
 }
@@ -2355,11 +2333,11 @@ void do_gemm_serial_opt1_batched_blocked_parallel(options_t options) {
   if (options.blas_args.batch_size_last_dim)
     __do_loop_and_invoke(
         options,
-        __do_gemm_parallel_batched<SerialBatchDim3TagOpt1, Algo::Gemv::Blocked,
+        __do_gemm_parallel_batched<SerialBatchDim3TagOpt1, Algo::Gemm::Blocked,
                                    default_device>);
   else
     __do_loop_and_invoke(
-        options, __do_gemm_parallel_batched<SerialTagOpt1, Algo::Gemv::Blocked,
+        options, __do_gemm_parallel_batched<SerialTagOpt1, Algo::Gemm::Blocked,
                                             default_device>);
   return;
 }

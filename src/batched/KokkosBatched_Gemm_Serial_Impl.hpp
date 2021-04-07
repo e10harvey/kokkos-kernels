@@ -89,38 +89,6 @@ namespace KokkosBatched {
            typename CViewType>
   KOKKOS_INLINE_FUNCTION
   int
-  SerialGemm<Trans::NoTranspose,Trans::NoTranspose,Algo::Gemm::UnblockedDot>::
-  invoke(const ScalarType alpha,
-         const AViewType &A,
-         const BViewType &B,
-         const ScalarType beta,
-         const CViewType &C) {
-    // C = beta C + alpha A B
-    // C (m x n), A(m x k), B(k x n)
-    size_t i = 0;
-    //printf("as0=%d,as1=%d,bs0=%d,bs1=%d,cs0=%d,cs1=%d\n",as0,as1,bs0,bs1,cs0,cs1);
-    //ScalarType dp = alpha * A(i) * B(i);
-    ScalarType dp = 0;
-    for (i = 0; i < B.extent(0); i++)
-      dp += alpha * A(i) * B(i);
-    C.data()[0] = beta * C.data()[0] + dp;
-    return 0;
-/*     return SerialGemmInternal<Algo::Gemm::UnblockedDot>::
-      invoke(C.extent(0), C.extent(1), A.extent(1),
-             alpha, 
-             A.data(), A.stride_0(), A.stride_1(),
-             B.data(), B.stride_0(), B.stride_1(),
-             beta,
-             C.data(), C.stride_0(), C.stride_1()); */
-  }
-
-  template<>
-  template<typename ScalarType,
-           typename AViewType,
-           typename BViewType,
-           typename CViewType>
-  KOKKOS_INLINE_FUNCTION
-  int
   SerialGemm<Trans::NoTranspose,Trans::NoTranspose,Algo::Gemm::Unblocked>::
   invoke(const ScalarType alpha,
          const AViewType &A,
