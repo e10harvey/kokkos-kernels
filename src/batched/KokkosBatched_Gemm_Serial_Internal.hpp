@@ -89,9 +89,10 @@ namespace KokkosBatched {
     // C (m x n), A(m x k), B(k x n)
     //printf("as0=%d,as1=%d,bs0=%d,bs1=%d,cs0=%d,cs1=%d\n",as0,as1,bs0,bs1,cs0,cs1);
     int i = 0;
-    C[0] *= beta;//alpha * A[i] * B[i];
+    ScalarType dp = C[0] * beta;//alpha * A[i] * B[i];
     for (i = 0; i < k; i++)
-      C[0] += alpha * A[i*as0] * B[i*bs0];
+      dp += alpha * A[i*as0] * B[i*bs0];
+    C[0] = dp;
     return 0;
   }
 
