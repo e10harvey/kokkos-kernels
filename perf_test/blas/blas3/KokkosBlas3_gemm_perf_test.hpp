@@ -493,7 +493,8 @@ struct parallel_batched_gemm_range_policy {
   // The divisor is used in optimized operators, which tags containing
   // "Opt". The divisor is used to decrease the size of the submatrices
   // passed to each gemm.
-  size_t divisor_;
+  size_t divisor_, tile_size_ = 16;
+
 
   parallel_batched_gemm_range_policy(gemm_args_t gemm_args, size_t divisor = 1)
       : gemm_args_(gemm_args), divisor_(divisor) {}
@@ -560,12 +561,17 @@ struct parallel_batched_gemm_range_policy {
   void operator()(const SerialTagOpt2 &, const int &i) const {
     // Here, the batch_idx is strided by c_rows * c_cols
     auto batch_idx = i / divisor_;
+    auto tile_id = (i % divisor_) / tile_size_;
+    auto num_tiles_per_cols = gemm_args_.C.extent(2) / (tile_size_ / 4);
+    auto col_tile = tile_id % (num_tiles_per_cols);
+    auto row_tile = tile_id / (num_tiles_per_cols);
     // For every batch, we need mod in [0, c_rows*c_cols-1]
-    auto mod = i % divisor_;  // ex: 2x2 -- 0,1,2,3
+    auto mod = i % tile_size_;  // ex: 2x2 -- 0,1,2,3
     // For every mod, we need a column index in [0, c_cols-1]
-    auto col_idx = mod % gemm_args_.C.extent(2);  // ex: 2x2 -- 0,1,0,1
+    auto col_idx = mod % (tile_size_ / 4) + (col_tile * (tile_size_ / 4));  // ex: 2x2 -- 0,1,0,1
     // For every mod, we need a row index in [0, c_rows-1]
-    auto row_idx = mod / gemm_args_.A.extent(2);  // ex: 1x2 -- 0,0,1,1
+    auto row_idx = mod / (tile_size_ / 4) + (row_tile * (tile_size_ / 4));  // ex: 1x2 -- 0,0,1,1
+    printf("i:%d,C(%lu,%lu),col_tile:%lu,row_tile:%lu,mod:%lu\n", i, row_idx, col_idx, col_tile, row_tile, mod);
 
     auto svA_row =
         Kokkos::subview(gemm_args_.A, batch_idx, row_idx, Kokkos::ALL());
@@ -584,12 +590,17 @@ struct parallel_batched_gemm_range_policy {
   void operator()(const SerialBatchDim3TagOpt2 &, const int &i) const {
     // Here, the batch_idx is strided by c_rows * c_cols
     auto batch_idx = i / divisor_;
+    auto tile_id = (i % divisor_) / tile_size_;
+    auto num_tiles_per_cols = gemm_args_.C.extent(1) / (tile_size_ / 4);
+    auto col_tile = tile_id % (num_tiles_per_cols);
+    auto row_tile = tile_id / (num_tiles_per_cols);
     // For every batch, we need mod in [0, c_rows*c_cols-1]
-    auto mod = i % divisor_;  // ex: 2x2 -- 0,1,2,3
+    auto mod = i % tile_size_;  // ex: 2x2 -- 0,1,2,3
     // For every mod, we need a column index in [0, c_cols-1]
-    auto col_idx = mod % gemm_args_.C.extent(1);  // ex: 2x2 -- 0,1,0,1
+    auto col_idx = mod % (tile_size_ / 4) + (col_tile * (tile_size_ / 4));  // ex: 2x2 -- 0,1,0,1
     // For every mod, we need a row index in [0, c_rows-1]
-    auto row_idx = mod / gemm_args_.A.extent(1);  // ex: 1x2 -- 0,0,1,1
+    auto row_idx = mod / (tile_size_ / 4) + (row_tile * (tile_size_ / 4));  // ex: 1x2 -- 0,0,1,1
+    printf("i:%d,C(%lu,%lu),col_tile:%lu,row_tile:%lu,mod:%lu\n", i, row_idx, col_idx, col_tile, row_tile, mod);
 
     auto svA_row =
         Kokkos::subview(gemm_args_.A, row_idx, Kokkos::ALL(), batch_idx);
