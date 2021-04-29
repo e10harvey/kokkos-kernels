@@ -502,12 +502,16 @@ struct parallel_batched_gemm_range_policy {
       tiles_per_c_m_, tiles_per_c_n_, tiles_per_2rank_matrix_,
       // tile_m_: 2rank tile rows (m)
       // tile_n_: 2rank tile cols (n)
-      tile_m_ = 1, tile_n_ = 1, tile_mn_, eles_per_tile_row_;
+      tile_m_, tile_n_, tile_mn_, eles_per_tile_row_;
 
   parallel_batched_gemm_range_policy(gemm_args_t gemm_args,
                                      bool batch_size_last_dim,
-                                     size_t divisor = 1)
-      : gemm_args_(gemm_args), divisor_(divisor) {
+                                     size_t divisor = 1, size_t tile_m = 1,
+                                     size_t tile_n = 1)
+      : gemm_args_(gemm_args),
+        divisor_(divisor),
+        tile_m_(tile_m),
+        tile_n_(tile_n) {
     if (batch_size_last_dim) {
       c_m_ = gemm_args_.C.extent(0);
       c_n_ = gemm_args_.C.extent(1);
@@ -1127,7 +1131,8 @@ void __do_gemm_parallel_batched_template_range_policy(options_t options,
   }
 
   functor_type parallel_batched_gemm_functor(
-      gemm_args, options.blas_args.batch_size_last_dim, divisor);
+      gemm_args, options.blas_args.batch_size_last_dim, divisor, options.tile.m,
+      options.tile.n);
 
   if (std::is_same<AlgoTag, SerialSimdTag>::value ||
       std::is_same<AlgoTag, SerialSimdBatchDim3Tag>::value) {

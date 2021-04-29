@@ -65,6 +65,7 @@
 #define DEFAULT_BATCH_SIZE_LAST_DIM 0
 #define DEFAULT_VERIFY 1
 #define DEFAULT_DIVISOR 1
+#define DEFAULT_TILE_SIZE 1
 
 /************************ blas routine structure definitions **********/
 struct perf_test_trmm_args {
@@ -175,7 +176,7 @@ typedef enum TEST {
 // clang-format off
 static std::string test_e_str[TEST_N]{
     "blas",
-    "batched_serial", "batched_serial_blocked", 
+    "batched_serial", "batched_serial_blocked",
     "batched_serial_opt1", "batched_serial_opt1_blocked",
     "batched_serial_opt2", "batched_serial_opt2_blocked",
     "batched_serial_optteam", "batched_serial_optteam_blocked",
@@ -228,6 +229,7 @@ struct perf_test_options {
   loop_e loop;
   matrix_dims_t start;
   matrix_dims_t stop;
+  matrix_dim tile;
   uint32_t step;
   uint32_t warm_up_n;
   uint32_t n;
