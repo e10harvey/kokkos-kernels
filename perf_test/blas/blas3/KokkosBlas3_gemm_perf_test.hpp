@@ -502,7 +502,7 @@ struct parallel_batched_gemm_range_policy {
       tiles_per_c_m_, tiles_per_c_n_, tiles_per_2rank_matrix_,
       // tile_m_: 2rank tile rows (m)
       // tile_n_: 2rank tile cols (n)
-      tile_m_ = 1, tile_n_ = 1, tile_mn_;
+      tile_m_ = 1, tile_n_ = 1, tile_mn_, eles_per_tile_row_;
 
   parallel_batched_gemm_range_policy(gemm_args_t gemm_args,
                                      bool batch_size_last_dim,
@@ -519,6 +519,7 @@ struct parallel_batched_gemm_range_policy {
     tiles_per_c_n_          = c_n_ / tile_n_;
     tiles_per_2rank_matrix_ = tiles_per_c_m_ * tiles_per_c_n_;
     tile_mn_                = tile_m_ * tile_n_;
+    eles_per_tile_row_      = tile_mn_ * tiles_per_c_n_;
   }
 
   //__device__
@@ -586,18 +587,17 @@ struct parallel_batched_gemm_range_policy {
   void operator()(const SerialTagOpt2 &, const int &i) const {
     // Here, the batch_idx is strided by c_rows * c_cols
     auto batch_idx = i / divisor_;
-    auto tile_mod  = i % divisor_;
 
     // For each thread, compute the given tile's row index, this spans the tile
     // size (tile_mn_) by the number of tiles that fit in our
     // columns (tiles_per_c_n_)
-    auto tile_m_idx = tile_mod / (tile_mn_ * tiles_per_c_n_);
+    auto tile_m_idx = (i % divisor_) / eles_per_tile_row_;
     // For each thread, compute the given tile's columns index, this is always
     // within [0, tiles_per_c_n_) but each thread must find its own column index
     auto tile_n_idx = (i / tile_mn_) % tiles_per_c_n_;
 
     // For every batch, we need mod in [0, tile_mn_)
-    auto mod = i % (tile_mn_);
+    auto mod = i % tile_mn_;
     // For every mod, we need a column index in [0, c_n_). Since tiles are used
     // for thread work assignment, we must stride the tile patterns of [0,
     // tiles_per_c_n_) by tile_n_idx * tile_n_ to find the correct offset within
@@ -627,18 +627,17 @@ struct parallel_batched_gemm_range_policy {
   KOKKOS_INLINE_FUNCTION
   void operator()(const SerialBatchDim3TagOpt2 &, const int &i) const {
     auto batch_idx = i / divisor_;
-    auto tile_mod  = i % divisor_;
 
     // For each thread, compute the given tile's row index, this spans the tile
     // size (tile_mn_) by the number of tiles that fit in our
     // columns (tiles_per_c_n_)
-    auto tile_m_idx = tile_mod / (tile_mn_ * tiles_per_c_n_);
+    auto tile_m_idx = (i % divisor_) / eles_per_tile_row_;
     // For each thread, compute the given tile's columns index, this is always
     // within [0, tiles_per_c_n_) but each thread must find its own column index
     auto tile_n_idx = (i / tile_mn_) % tiles_per_c_n_;
 
     // For every batch, we need mod in [0, tile_mn_)
-    auto mod = i % (tile_mn_);
+    auto mod = i % tile_mn_;
     // For every mod, we need a column index in [0, c_n_). Since tiles are used
     // for thread work assignment, we must stride the tile patterns of [0,
     // tiles_per_c_n_) by tile_n_idx * tile_n_ to find the correct offset within
