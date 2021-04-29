@@ -493,22 +493,47 @@ struct parallel_batched_gemm_range_policy {
   // The divisor is used in optimized operators, which tags containing
   // "Opt". The divisor is used to decrease the size of the submatrices
   // passed to each gemm.
-  size_t divisor_, tile_size_ = 16;
+  size_t divisor_,
+      // 2rank C matrix rows (m) and cols (n)
+      c_m_, c_n_,
+      // tiles_per_c_m_: Number of tiles per every row of a 2rank C matrix
+      // tiles_per_c_n_: Number of tiles per every col of a 2rank C matrix
+      // tiles_per_2rank_matrix: Number of tiles per every 2rank C matrix
+      tiles_per_c_m_, tiles_per_c_n_, tiles_per_2rank_matrix_,
+      // tile_m_: 2rank tile rows (m)
+      // tile_n_: 2rank tile cols (n)
+      tile_m_ = 4, tile_n_ = 8, tile_mn_;
 
-
-  parallel_batched_gemm_range_policy(gemm_args_t gemm_args, size_t divisor = 1)
-      : gemm_args_(gemm_args), divisor_(divisor) {}
+  parallel_batched_gemm_range_policy(gemm_args_t gemm_args,
+                                     bool batch_size_last_dim,
+                                     size_t divisor = 1)
+      : gemm_args_(gemm_args), divisor_(divisor) {
+    if (batch_size_last_dim) {
+      c_m_ = gemm_args_.C.extent(0);
+      c_n_ = gemm_args_.C.extent(1);
+    } else {
+      c_m_ = gemm_args_.C.extent(1);
+      c_n_ = gemm_args_.C.extent(2);
+    }
+    tiles_per_c_m_          = c_m_ / tile_m_;
+    tiles_per_c_n_          = c_n_ / tile_n_;
+    tiles_per_2rank_matrix_ = tiles_per_c_m_ * tiles_per_c_n_;
+    tile_mn_                = tile_m_ * tile_n_;
+  }
 
   //__device__
   KOKKOS_INLINE_FUNCTION
   void operator()(const SerialTag &, const int &i) const {
-    auto svA = Kokkos::subview(gemm_args_.A, i, Kokkos::ALL(), Kokkos::ALL()); // m x k = 16 x 16
-    auto svB = Kokkos::subview(gemm_args_.B, i, Kokkos::ALL(), Kokkos::ALL()); // k x n = 16 x 16
-    auto svC = Kokkos::subview(gemm_args_.C, i, Kokkos::ALL(), Kokkos::ALL()); // m x n = 16 x 16
+    auto svA = Kokkos::subview(gemm_args_.A, i, Kokkos::ALL(),
+                               Kokkos::ALL());  // m x k = 16 x 16
+    auto svB = Kokkos::subview(gemm_args_.B, i, Kokkos::ALL(),
+                               Kokkos::ALL());  // k x n = 16 x 16
+    auto svC = Kokkos::subview(gemm_args_.C, i, Kokkos::ALL(),
+                               Kokkos::ALL());  // m x n = 16 x 16
 
-    //wmma_ker((half *) svA.data(), (half *) svB.data(), (half *) svC.data());
+    // wmma_ker((half *) svA.data(), (half *) svB.data(), (half *) svC.data());
     KokkosBatched::SerialGemm<TransAType, TransBType, BlockingType>::invoke(
-       gemm_args_.alpha, svA, svB, gemm_args_.beta, svC);
+        gemm_args_.alpha, svA, svB, gemm_args_.beta, svC);
   }
 
   KOKKOS_INLINE_FUNCTION
@@ -561,17 +586,31 @@ struct parallel_batched_gemm_range_policy {
   void operator()(const SerialTagOpt2 &, const int &i) const {
     // Here, the batch_idx is strided by c_rows * c_cols
     auto batch_idx = i / divisor_;
-    auto tile_id = (i % divisor_) / tile_size_;
-    auto num_tiles_per_cols = gemm_args_.C.extent(2) / (tile_size_ / 4);
-    auto col_tile = tile_id % (num_tiles_per_cols);
-    auto row_tile = tile_id / (num_tiles_per_cols);
-    // For every batch, we need mod in [0, c_rows*c_cols-1]
-    auto mod = i % tile_size_;  // ex: 2x2 -- 0,1,2,3
-    // For every mod, we need a column index in [0, c_cols-1]
-    auto col_idx = mod % (tile_size_ / 4) + (col_tile * (tile_size_ / 4));  // ex: 2x2 -- 0,1,0,1
-    // For every mod, we need a row index in [0, c_rows-1]
-    auto row_idx = mod / (tile_size_ / 4) + (row_tile * (tile_size_ / 4));  // ex: 1x2 -- 0,0,1,1
-    printf("i:%d,C(%lu,%lu),col_tile:%lu,row_tile:%lu,mod:%lu\n", i, row_idx, col_idx, col_tile, row_tile, mod);
+    auto tile_mod  = i % divisor_;
+
+    // For each thread, compute the given tile's row index, this spans the tile
+    // size (tiles_per_2rank_matrix_) by the number of tiles that fit in our
+    // columns (tiles_per_c_n_)
+    auto tile_m_idx = tile_mod / (tiles_per_2rank_matrix_ * tiles_per_c_n_);
+    // For each thread, compute the given tile's columns index, this is always
+    // within [0, tiles_per_c_n_) but each thread must find its column index
+    // within i / tiles_per_2rank_matrix_
+    auto tile_n_idx = (tile_mod / tiles_per_2rank_matrix_) % tiles_per_c_n_;
+
+    // For every batch, we need mod in [0, tile_mn_)
+    auto mod = i % (tile_mn_);
+    // For every mod, we need a column index in [0, c_n_). Since tiles are used
+    // for thread work assignment, we must stride the tile patterns of [0,
+    // tiles_per_c_n_) by tile_n_idx * tile_n_ to find the correct offset within
+    // the given tile of C/A/B.
+    auto col_idx = (mod % tile_n_) + tile_n_idx * tile_n_;
+    // For every mod, we need a row index in [0, c_m_). Since tiles are used
+    // for thread work assignment, we must stride the tile patterns of [0,
+    // tiles_per_c_m_) by tile_m_idx * tile_m_ to find the correct offset within
+    // the given tile of C/A/B.
+    auto row_idx = (mod / tile_n_) + tile_m_idx * tile_m_;
+    printf("dim1, i:%d,C(%lu,%lu),tile_m_idx:%lu,tile_n_idx:%lu,mod:%lu\n", i,
+           row_idx, col_idx, tile_m_idx, tile_n_idx, mod);
 
     auto svA_row =
         Kokkos::subview(gemm_args_.A, batch_idx, row_idx, Kokkos::ALL());
@@ -588,19 +627,32 @@ struct parallel_batched_gemm_range_policy {
 
   KOKKOS_INLINE_FUNCTION
   void operator()(const SerialBatchDim3TagOpt2 &, const int &i) const {
-    // Here, the batch_idx is strided by c_rows * c_cols
     auto batch_idx = i / divisor_;
-    auto tile_id = (i % divisor_) / tile_size_;
-    auto num_tiles_per_cols = gemm_args_.C.extent(1) / (tile_size_ / 4);
-    auto col_tile = tile_id % (num_tiles_per_cols);
-    auto row_tile = tile_id / (num_tiles_per_cols);
-    // For every batch, we need mod in [0, c_rows*c_cols-1]
-    auto mod = i % tile_size_;  // ex: 2x2 -- 0,1,2,3
-    // For every mod, we need a column index in [0, c_cols-1]
-    auto col_idx = mod % (tile_size_ / 4) + (col_tile * (tile_size_ / 4));  // ex: 2x2 -- 0,1,0,1
-    // For every mod, we need a row index in [0, c_rows-1]
-    auto row_idx = mod / (tile_size_ / 4) + (row_tile * (tile_size_ / 4));  // ex: 1x2 -- 0,0,1,1
-    printf("i:%d,C(%lu,%lu),col_tile:%lu,row_tile:%lu,mod:%lu\n", i, row_idx, col_idx, col_tile, row_tile, mod);
+    auto tile_mod  = i % divisor_;
+
+    // For each thread, compute the given tile's row index, this spans the tile
+    // size (tiles_per_2rank_matrix_) by the number of tiles that fit in our
+    // columns (tiles_per_c_n_)
+    auto tile_m_idx = tile_mod / (tiles_per_2rank_matrix_ * tiles_per_c_n_);
+    // For each thread, compute the given tile's columns index, this is always
+    // within [0, tiles_per_c_n_) but each thread must find its column index
+    // within i / tiles_per_2rank_matrix_
+    auto tile_n_idx = (tile_mod / tiles_per_2rank_matrix_) % tiles_per_c_n_;
+
+    // For every batch, we need mod in [0, c_rows*c_cols-)
+    auto mod = i % (tile_mn_);
+    // For every mod, we need a column index in [0, c_n_). Since tiles are used
+    // for thread work assignment, we must stride the tile patterns of [0,
+    // tiles_per_c_n_) by tile_n_idx * tile_n_ to find the correct offset within
+    // the given tile of C/A/B.
+    auto col_idx = (mod % tile_n_) + tile_n_idx * tile_n_;
+    // For every mod, we need a row index in [0, c_m_). Since tiles are used
+    // for thread work assignment, we must stride the tile patterns of [0,
+    // tiles_per_c_m_) by tile_m_idx * tile_m_ to find the correct offset within
+    // the given tile of C/A/B.
+    auto row_idx = (mod / tile_n_) + tile_m_idx * tile_m_;
+    printf("dim3, i:%d,C(%lu,%lu),tile_m_idx:%lu,tile_n_idx:%lu,mod:%lu\n", i,
+           row_idx, col_idx, tile_m_idx, tile_n_idx, mod);
 
     auto svA_row =
         Kokkos::subview(gemm_args_.A, row_idx, Kokkos::ALL(), batch_idx);
@@ -1077,7 +1129,8 @@ void __do_gemm_parallel_batched_template_range_policy(options_t options,
     batch_size *= divisor;
   }
 
-  functor_type parallel_batched_gemm_functor(gemm_args, divisor);
+  functor_type parallel_batched_gemm_functor(
+      gemm_args, options.blas_args.batch_size_last_dim, divisor);
 
   if (std::is_same<AlgoTag, SerialSimdTag>::value ||
       std::is_same<AlgoTag, SerialSimdBatchDim3Tag>::value) {
