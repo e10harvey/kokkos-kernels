@@ -143,6 +143,8 @@ struct SerialTagOpt1 {};
 struct SerialBatchDim3TagOpt1 {};
 struct SerialTagOpt2 {};
 struct SerialBatchDim3TagOpt2 {};
+struct SerialTagOpt2Tiled {};
+struct SerialBatchDim3TagOpt2Tiled {};
 struct SerialTagOptTeam {};
 struct SerialBatchDim3TagOptTeam {};
 struct TeamTagOptDivisor {};
@@ -591,6 +593,54 @@ struct parallel_batched_gemm_range_policy {
   void operator()(const SerialTagOpt2 &, const int &i) const {
     // Here, the batch_idx is strided by c_rows * c_cols
     auto batch_idx = i / divisor_;
+    // For every batch, we need mod in [0, c_rows*c_cols-1]
+    auto mod = i % divisor_;  // ex: 2x2 -- 0,1,2,3
+    // For every mod, we need a column index in [0, c_cols-1]
+    auto col_idx = mod % gemm_args_.C.extent(2);  // ex: 2x2 -- 0,1,0,1
+    // For every mod, we need a row index in [0, c_rows-1]
+    auto row_idx = mod / gemm_args_.C.extent(1);  // ex: 2x2 -- 0,0,1,1
+
+    auto svA_row =
+        Kokkos::subview(gemm_args_.A, batch_idx, row_idx, Kokkos::ALL());
+    auto svB_col =
+        Kokkos::subview(gemm_args_.B, batch_idx, Kokkos::ALL(), col_idx);
+    auto svC_ele = Kokkos::subview(gemm_args_.C, batch_idx, row_idx, col_idx);
+
+    // TODO: Fix subview for svA_row and add back in TransAType.
+    KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
+                              BlockingType>::invoke(gemm_args_.alpha, svA_row,
+                                                    svB_col, gemm_args_.beta,
+                                                    svC_ele);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  void operator()(const SerialBatchDim3TagOpt2 &, const int &i) const {
+    // Here, the batch_idx is strided by c_rows * c_cols
+    auto batch_idx = i / divisor_;
+    // For every batch, we need mod in [0, c_rows*c_cols-1]
+    auto mod = i % divisor_;  // ex: 2x2 -- 0,1,2,3
+    // For every mod, we need a column index in [0, c_cols-1]
+    auto col_idx = mod % gemm_args_.C.extent(1);  // ex: 2x2 -- 0,1,0,1
+    // For every mod, we need a row index in [0, c_rows-1]
+    auto row_idx = mod / gemm_args_.C.extent(0);  // ex: 2x2 -- 0,0,1,1
+
+    auto svA_row =
+        Kokkos::subview(gemm_args_.A, row_idx, Kokkos::ALL(), batch_idx);
+    auto svB_col =
+        Kokkos::subview(gemm_args_.B, Kokkos::ALL(), col_idx, batch_idx);
+    auto svC_ele = Kokkos::subview(gemm_args_.C, row_idx, col_idx, batch_idx);
+
+    // TODO: Fix subview for svA_row and add back in TransAType.
+    KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
+                              BlockingType>::invoke(gemm_args_.alpha, svA_row,
+                                                    svB_col, gemm_args_.beta,
+                                                    svC_ele);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  void operator()(const SerialTagOpt2Tiled &, const int &i) const {
+    // Here, the batch_idx is strided by c_rows * c_cols
+    auto batch_idx = i / divisor_;
 
     // For each thread, compute the given tile's row index, this spans the tile
     // size (tile_mn_) by the number of tiles that fit in our
@@ -629,7 +679,7 @@ struct parallel_batched_gemm_range_policy {
   }
 
   KOKKOS_INLINE_FUNCTION
-  void operator()(const SerialBatchDim3TagOpt2 &, const int &i) const {
+  void operator()(const SerialBatchDim3TagOpt2Tiled &, const int &i) const {
     auto batch_idx = i / divisor_;
 
     // For each thread, compute the given tile's row index, this spans the tile
@@ -1093,6 +1143,18 @@ struct parallel_batched_gemm {
                   const MemberType &member) const {
     Kokkos::abort("SerialBatchDim3TagOpt1 not supported using RangePolicy.");
   }
+
+  KOKKOS_INLINE_FUNCTION
+  void operator()(const SerialTagOpt2Tiled &, const MemberType &member) const {
+    Kokkos::abort("SerialTagOpt2Tiled not supported using RangePolicy.");
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  void operator()(const SerialBatchDim3TagOpt2Tiled &,
+                  const MemberType &member) const {
+    Kokkos::abort(
+        "SerialBatchDim3TagOpt2Tiled not supported using RangePolicy.");
+  }
 };
 
 template <class TransAType, class TransBType, class BlockingType, class AlgoTag,
@@ -1122,7 +1184,9 @@ void __do_gemm_parallel_batched_template_range_policy(options_t options,
   }
 
   if (std::is_same<AlgoTag, SerialTagOpt2>::value ||
-      std::is_same<AlgoTag, SerialBatchDim3TagOpt2>::value) {
+      std::is_same<AlgoTag, SerialBatchDim3TagOpt2>::value ||
+      std::is_same<AlgoTag, SerialTagOpt2Tiled>::value ||
+      std::is_same<AlgoTag, SerialBatchDim3TagOpt2Tiled>::value) {
     // NOTE: Intentionally leave AlgoTag at Opt1 on host for perf test
     // NOTE: Intentionally stay at Opt1 even if batch_size >=
     // backend_thread_threshold
@@ -1186,6 +1250,8 @@ void __do_gemm_parallel_batched_template(options_t options,
       std::is_same<AlgoTag, SerialBatchDim3TagOpt1>::value ||
       std::is_same<AlgoTag, SerialTagOpt2>::value ||
       std::is_same<AlgoTag, SerialBatchDim3TagOpt2>::value ||
+      std::is_same<AlgoTag, SerialTagOpt2Tiled>::value ||
+      std::is_same<AlgoTag, SerialBatchDim3TagOpt2Tiled>::value ||
       std::is_same<AlgoTag, SerialSimdTag>::value ||
       std::is_same<AlgoTag, SerialSimdBatchDim3Tag>::value) {
     return __do_gemm_parallel_batched_template_range_policy<
@@ -2410,30 +2476,61 @@ void do_gemm_serial_opt1_batched_blocked_parallel(options_t options) {
 
 void do_gemm_serial_opt2_batched_parallel(options_t options) {
   STATUS;
-  if (options.blas_args.batch_size_last_dim)
-    __do_loop_and_invoke(
-        options,
-        __do_gemm_parallel_batched<SerialBatchDim3TagOpt2,
-                                   Algo::Gemm::Unblocked, default_device>);
-  else
-    __do_loop_and_invoke(
-        options,
-        __do_gemm_parallel_batched<SerialTagOpt2, Algo::Gemm::Unblocked,
-                                   default_device>);
+  if (options.blas_args.batch_size_last_dim) {
+    if (options.tile.m != 1 || options.tile.n != 1) {
+      __do_loop_and_invoke(
+          options,
+          __do_gemm_parallel_batched<SerialBatchDim3TagOpt2Tiled,
+                                     Algo::Gemm::Unblocked, default_device>);
+    } else {
+      __do_loop_and_invoke(
+          options,
+          __do_gemm_parallel_batched<SerialBatchDim3TagOpt2,
+                                     Algo::Gemm::Unblocked, default_device>);
+    }
+  } else {
+    if (options.tile.m != 1 || options.tile.n != 1) {
+      __do_loop_and_invoke(
+          options,
+          __do_gemm_parallel_batched<SerialTagOpt2Tiled, Algo::Gemm::Unblocked,
+                                     default_device>);
+    } else {
+      __do_loop_and_invoke(
+          options,
+          __do_gemm_parallel_batched<SerialTagOpt2, Algo::Gemm::Unblocked,
+                                     default_device>);
+    }
+  }
   return;
 }
 
 void do_gemm_serial_opt2_batched_blocked_parallel(options_t options) {
   STATUS;
-  if (options.blas_args.batch_size_last_dim)
-    __do_loop_and_invoke(
-        options,
-        __do_gemm_parallel_batched<SerialBatchDim3TagOpt2, Algo::Gemm::Blocked,
-                                   default_device>);
-  else
-    __do_loop_and_invoke(
-        options, __do_gemm_parallel_batched<SerialTagOpt2, Algo::Gemm::Blocked,
-                                            default_device>);
+  if (options.blas_args.batch_size_last_dim) {
+    if (options.tile.m != 1 || options.tile.n != 1) {
+      __do_loop_and_invoke(
+          options,
+          __do_gemm_parallel_batched<SerialBatchDim3TagOpt2Tiled,
+                                     Algo::Gemm::Blocked, default_device>);
+    } else {
+      __do_loop_and_invoke(
+          options,
+          __do_gemm_parallel_batched<SerialBatchDim3TagOpt2,
+                                     Algo::Gemm::Blocked, default_device>);
+    }
+  } else {
+    if (options.tile.m != 1 || options.tile.n != 1) {
+      __do_loop_and_invoke(
+          options,
+          __do_gemm_parallel_batched<SerialTagOpt2Tiled, Algo::Gemm::Blocked,
+                                     default_device>);
+    } else {
+      __do_loop_and_invoke(
+          options,
+          __do_gemm_parallel_batched<SerialTagOpt2, Algo::Gemm::Blocked,
+                                     default_device>);
+    }
+  }
   return;
 }
 
