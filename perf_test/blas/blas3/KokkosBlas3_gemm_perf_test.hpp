@@ -196,6 +196,8 @@ void (*do_gemm_invoke[LOOP_N][TEST_N])(options_t) = {
 #define DEFAULT_GEMM_ALPHA 1.0
 #define DEFAULT_GEMM_BETA 1.0
 
+using view_type_2d_scratch = Kokkos::View<default_scalar **, default_layout, typename default_device::scratch_memory_space>;
+
 using view_type_3d =
     Kokkos::View<default_scalar ***, default_layout, default_device>;
 using view_type_4d =
@@ -992,9 +994,80 @@ struct parallel_batched_gemm {
     auto svB = Kokkos::subview(gemm_args_.B, i, Kokkos::ALL(), Kokkos::ALL());
     auto svC = Kokkos::subview(gemm_args_.C, i, Kokkos::ALL(), Kokkos::ALL());
 
+    // On Volta, we have:
+    // 80 SMs / GPU, 2048 threads / SM, 128K shmem / SM
+
+    // TODO: Load A into scratch space for thread-wise bank access (all threads access a different bank) // mxk
+    //   Slight speedup with just A scratch. Figure out better A access pattern.
+
+    // Load B into scratch space for broadcast access (all threads access the identical address) // kxn
+    //   TODO: This is the best use of scratch space with current TeamGemm impl. Will this cause bank conflicts across teams?
+
+    // TODO: Load C into scratch space for thread-wise bank access (all thread access a different bank) // mxn
+    //  Slight speedup with just C scracth. Figure out better C access pattern.
+    view_type_2d_scratch svA_scr(member.team_scratch(0), svA.extent(0),  svA.extent(1));
+    view_type_2d_scratch svB_scr(member.team_scratch(0), svB.extent(0),  svB.extent(1));
+    //view_type_2d_scratch svC_scr(member.team_scratch(0), svC.extent(0),  svC.extent(1));
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svB.extent(0)), [&](const int &i) {
+      Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svB.extent(1)), [&](const int &j) {
+        svA_scr(i,j) = svA(i,j);
+        svB_scr(i,j) = svB(i,j);
+        //svC_scr(i,j) = svC(i,j);
+      });
+    });
+
+    // Wait for A, B, C to reside in scratch memory
+    member.team_barrier();
+
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svC.extent(0)), [&](const int &row_idx) {
+      auto svA_row = Kokkos::subview(svA_scr, row_idx, Kokkos::ALL());
+      Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svC.extent(1)), [&](const int &col_idx) {
+        auto svB_col = Kokkos::subview(svB_scr, Kokkos::ALL(), col_idx);
+        auto svC_ele = Kokkos::subview(svC, row_idx, col_idx);
+
+        // TODO: Serial dot -- try to use some registers and then do a multi-word write to C
+        KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
+            BlockingType>::invoke(gemm_args_.alpha, svA_row,
+                                  svB_col, gemm_args_.beta,
+                                  svC_ele);
+      });
+    });
+
+#if 0
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svC.extent(0) * svC.extent(1)), [&](const int &ij) {
+      auto row_idx = ij / svC.extent(0), col_idx = ij % svC.extent(0);
+
+      auto svA_row =
+          Kokkos::subview(svA, row_idx, Kokkos::ALL());
+      auto svB_col =
+          Kokkos::subview(svB_scr, Kokkos::ALL(), col_idx);
+      auto svC_ele = Kokkos::subview(svC, row_idx, col_idx);
+
+      // TODO: Load svA_row into scratch
+      /*if (col_idx == 0) {
+        member.team_barrier();
+      }*/
+
+      // TODO: Fix subview for svA_row and add back in TransAType.
+      KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
+          BlockingType>::invoke(gemm_args_.alpha, svA_row,
+                                svB_col, gemm_args_.beta,
+                                svC_ele);
+    });
+#endif
+    /*
     KokkosBatched::TeamGemm<MemberType, TransAType, TransBType,
                             BlockingType>::invoke(member, gemm_args_.alpha, svA,
-                                                  svB, gemm_args_.beta, svC);
+                                                  svB_scr, gemm_args_.beta, svC);
+*/
+    //Wait for svC_scr to be populated
+/*    member.team_barrier();
+
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svC.extent(0)), [&](const int &i) {
+      Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svC.extent(1)), [&](const int &j) {
+        svC(i,j) = svC_scr(i,j);
+      });
+    });*/
   }
 
   KOKKOS_INLINE_FUNCTION
@@ -1280,11 +1353,17 @@ void __do_gemm_parallel_batched_template(options_t options,
   STATUS;
 
   functor_type parallel_batched_gemm_functor(gemm_args, divisor);
+  // TODO: Set per-team scratch size
+
+  size_t shmem_size =
+      view_type_2d_scratch::shmem_size(gemm_args.dims.a.m, gemm_args.dims.a.n) +
+      view_type_2d_scratch::shmem_size(gemm_args.dims.b.m, gemm_args.dims.b.n);
+      //view_type_2d_scratch ::shmem_size(gemm_args.dims.c.m, gemm_args.dims.c.n);
 
   if (options.blas_args.use_auto) {
     for (uint32_t i = 0; i < warm_up_n; i++) {
       Kokkos::parallel_for("parallelBatchedWarmUpLoopGemm",
-                           policy_type(league_size, Kokkos::AUTO, Kokkos::AUTO),
+                           policy_type(league_size, Kokkos::AUTO, Kokkos::AUTO).set_scratch_size(0, Kokkos::PerTeam(shmem_size)),
                            parallel_batched_gemm_functor);
       Kokkos::fence();
     }
@@ -1292,14 +1371,14 @@ void __do_gemm_parallel_batched_template(options_t options,
     timer.reset();
     for (uint32_t i = 0; i < n; i++) {
       Kokkos::parallel_for("parallelBatchedTimedLoopGemm",
-                           policy_type(league_size, Kokkos::AUTO, Kokkos::AUTO),
+                           policy_type(league_size, Kokkos::AUTO, Kokkos::AUTO).set_scratch_size(0, Kokkos::PerTeam(shmem_size)),
                            parallel_batched_gemm_functor);
       Kokkos::fence();
     }
   } else {
     for (uint32_t i = 0; i < warm_up_n; i++) {
       Kokkos::parallel_for("parallelBatchedWarmUpLoopGemm",
-                           policy_type(league_size, team_size, vector_len),
+                           policy_type(league_size, team_size, vector_len).set_scratch_size(0, Kokkos::PerTeam(shmem_size)),
                            parallel_batched_gemm_functor);
       Kokkos::fence();
     }
@@ -1307,7 +1386,7 @@ void __do_gemm_parallel_batched_template(options_t options,
     timer.reset();
     for (uint32_t i = 0; i < n; i++) {
       Kokkos::parallel_for("parallelBatchedTimedLoopGemm",
-                           policy_type(league_size, team_size, vector_len),
+                           policy_type(league_size, team_size, vector_len).set_scratch_size(0, Kokkos::PerTeam(shmem_size)),
                            parallel_batched_gemm_functor);
       Kokkos::fence();
     }
