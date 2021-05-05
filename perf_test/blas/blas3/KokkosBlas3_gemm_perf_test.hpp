@@ -814,9 +814,18 @@ template <class MemberType, class TransAType, class TransBType,
 struct parallel_batched_gemm {
   gemm_args_t gemm_args_;
   size_t divisor_;
+  unsigned tiles_per_row, tiles_per_col, tile_rows, tile_cols;
 
-  parallel_batched_gemm(gemm_args_t gemm_args, size_t divisor = 1)
-      : gemm_args_(gemm_args), divisor_(divisor) {}
+  parallel_batched_gemm(gemm_args_t gemm_args, bool batch_size_last_dim, size_t divisor = 1, unsigned tile_m = 1, unsigned tile_n = 1)
+      : gemm_args_(gemm_args), divisor_(divisor), tile_rows(tile_m), tile_cols(tile_n) {
+    if (batch_size_last_dim) {
+      tiles_per_row = (unsigned)gemm_args.C.extent(0) / tile_rows;
+      tiles_per_col = (unsigned)gemm_args.C.extent(1) / tile_cols;
+    } else {
+      tiles_per_row = (unsigned)gemm_args.C.extent(1) / tile_rows;
+      tiles_per_col = (unsigned)gemm_args.C.extent(2) / tile_cols;
+    }
+  }
 
   KOKKOS_INLINE_FUNCTION
   void operator()(const SerialTag &, const MemberType &member) const {
@@ -998,6 +1007,55 @@ struct parallel_batched_gemm {
     // On Volta, we have:
     // 80 SMs / GPU, 2048 threads / SM, 128K shmem / SM
 
+    // TODO: use 16x16 tiles to reduce scratch size and increase blocks / SM (occupancy)
+#if 1
+    view_type_2d_scratch svA_scr(member.team_scratch(0), tile_rows, svA.extent(1));
+    view_type_2d_scratch svB_scr(member.team_scratch(0), svB.extent(0), tile_cols);
+    for (unsigned tile_row_idx = 0; tile_row_idx < (unsigned) tiles_per_row; ++tile_row_idx) {
+      unsigned row_tile_offset = tile_row_idx * tile_rows;
+      unsigned row_start_idx = row_tile_offset, row_end_idx = row_start_idx + tile_rows;
+      for (unsigned tile_col_idx = 0; tile_col_idx < (unsigned) tiles_per_col; ++tile_col_idx) {
+        unsigned col_tile_offset = tile_col_idx * tile_cols;
+        unsigned col_start_idx = col_tile_offset, col_end_idx = col_start_idx + tile_cols;
+        //printf("(%u:%u,%u:%u)\n", row_start_idx, row_end_idx, col_start_idx, col_end_idx);
+
+        // Copy A & B tile to scratch
+        Kokkos::parallel_for(Kokkos::TeamThreadRange(member, row_start_idx, row_end_idx), [&](const int &i) {
+          auto tile_i = i - row_tile_offset;
+          Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svA_scr.extent(1)), [&](const int &j) {
+            //printf("svA_scr:(%d,%d)=(%d,%d)\n", tile_i, j, i, j);
+            svA_scr(tile_i,j) = svA(i,j); // all cols
+          });
+        });
+        Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svB_scr.extent(0)), [&](const int &i) {
+          Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, col_start_idx, col_end_idx), [&](const int &j) {
+            auto tile_j = j - col_tile_offset;
+            //printf("svB_scr:(%d,%d)=(%d,%d)\n", i, tile_j, i, j);
+            svB_scr(i,tile_j) = svB(i,j); // all rows
+          });
+        });
+        member.team_barrier();
+
+        Kokkos::parallel_for(Kokkos::TeamThreadRange(member, row_start_idx, row_end_idx),[&](const int &row_idx) {  // thread.x
+          auto tile_i = row_idx - row_tile_offset;
+          auto svA_row = Kokkos::subview(svA_scr, tile_i, Kokkos::ALL());
+          Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, col_start_idx, col_end_idx),[&](const int &col_idx) {  // thread.y
+            auto tile_j = col_idx - col_tile_offset;
+            auto svB_col = Kokkos::subview(svB_scr, Kokkos::ALL(), tile_j);
+            auto svC_ele = Kokkos::subview(svC, row_idx, col_idx);
+
+            KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
+                BlockingType>::invoke(gemm_args_.alpha,
+                                      svA_row,
+                                      svB_col,
+                                      gemm_args_.beta,
+                                      svC_ele);
+          });
+        });
+      }
+    }
+
+#else
     // DONE: try different layout for sv{A|B}_scr [DONE - perf dropped]
     view_type_2d_scratch svA_scr(member.team_scratch(0), svA.extent(0),  svA.extent(1));
     view_type_2d_scratch svB_scr(member.team_scratch(0), svB.extent(0),  svB.extent(1));
@@ -1018,34 +1076,6 @@ struct parallel_batched_gemm {
     // Wait for A, B, C to reside in scratch memory
     member.team_barrier();
 
-    // TODO: use 16x16 tiles to reduce scratch size and increase blocks / SM (occupancy)
-#if 0
-    for (unsigned tile_row_idx = 0; tile_row_idx < (unsigned) tiles_per_row; ++tile_row_idx) {
-      unsigned tile_m_start = tile_row_idx * (unsigned) tile_m, tile_m_end = tile_m_start + (unsigned) tile_m;
-      for (unsigned tile_col_idx = 0; tile_col_idx < (unsigned) tiles_per_col; ++tile_col_idx) {
-        unsigned tile_n_start = tile_col_idx * (unsigned) tile_n, tile_n_end = tile_n_start + (unsigned) tile_n;
-        Kokkos::parallel_for(Kokkos::TeamThreadRange(member, tile_m_start, tile_m_end),[&](const int &row_idx) {  // thread.x
-          auto svA_row = Kokkos::subview(svA_scr, row_idx, Kokkos::ALL());
-          Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, tile_n_start, tile_n_end),[&](const int &col_idx) {  // thread.y
-            auto svB_col = Kokkos::subview(svB_scr, Kokkos::ALL(), col_idx); //256 bytes apart
-            auto svC_ele = Kokkos::subview(svC, row_idx, col_idx); // TODO: shared mem?
-
-            // TODO: Serial dot -- try to use some registers and then do a
-            // multi-word write to C
-            KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
-                BlockingType>::invoke(gemm_args_
-                                          .alpha,
-                                      svA_row,
-                                      svB_col,
-                                      gemm_args_.beta,
-                                      svC_ele);
-          });
-        });
-        // TODO:
-      }
-    }
-
-#else
     Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svC.extent(0)),[&](const int &row_idx) { // thread.x
       auto svA_row = Kokkos::subview(svA_scr, row_idx, Kokkos::ALL());
       // DONE: reduce scratch size and lazy copy svA_row -- svA_row_scr = svA_row: Doesn't work when team_size > 1.
@@ -1447,12 +1477,15 @@ void __do_gemm_parallel_batched_template(options_t options,
 
   STATUS;
 
-  functor_type parallel_batched_gemm_functor(gemm_args, divisor);
+  functor_type parallel_batched_gemm_functor(gemm_args, options.blas_args.batch_size_last_dim, divisor, options.tile.m, options.tile.n);
   // TODO: Set per-team scratch size
 
   size_t shmem_size =
+      view_type_2d_scratch::shmem_size(options.tile.m, gemm_args.dims.a.n) +
+      view_type_2d_scratch::shmem_size(gemm_args.dims.b.m, options.tile.n);
+/*  size_t shmem_size =
       view_type_2d_scratch::shmem_size(gemm_args.dims.a.m, gemm_args.dims.a.n) +
-      view_type_2d_scratch::shmem_size(gemm_args.dims.b.m, gemm_args.dims.b.n);
+      view_type_2d_scratch::shmem_size(gemm_args.dims.b.m, gemm_args.dims.b.n);*/
       //view_type_2d_scratch ::shmem_size(gemm_args.dims.c.m, gemm_args.dims.c.n);
 
   if (options.blas_args.use_auto) {
