@@ -197,6 +197,7 @@ void (*do_gemm_invoke[LOOP_N][TEST_N])(options_t) = {
 #define DEFAULT_GEMM_BETA 1.0
 
 using view_type_2d_scratch = Kokkos::View<default_scalar **, default_layout, typename default_device::scratch_memory_space>;
+using view_type_2d_scratch_layout_left = Kokkos::View<default_scalar **, Kokkos::LayoutLeft, typename default_device::scratch_memory_space>;
 
 using view_type_3d =
     Kokkos::View<default_scalar ***, default_layout, default_device>;
@@ -997,23 +998,14 @@ struct parallel_batched_gemm {
     // On Volta, we have:
     // 80 SMs / GPU, 2048 threads / SM, 128K shmem / SM
 
-    // TODO: Load A into scratch space for thread-wise bank access (all threads access a different bank) // mxk
-    //   Slight speedup with just A scratch. Figure out better A access pattern.
-
-    // Load B into scratch space for broadcast access (all threads access the identical address) // kxn
-    //   TODO: This is the best use of scratch space with current TeamGemm impl. Will this cause bank conflicts across teams?
-
-    // TODO: Load C into scratch space for thread-wise bank access (all thread access a different bank) // mxn
-    //  Slight speedup with just C scratch. Figure out better C access pattern.
-
-    // TODO: try different layout for sv{A|B}_scr
+    // DONE: try different layout for sv{A|B}_scr [DONE - perf dropped]
     view_type_2d_scratch svA_scr(member.team_scratch(0), svA.extent(0),  svA.extent(1));
     view_type_2d_scratch svB_scr(member.team_scratch(0), svB.extent(0),  svB.extent(1));
     //view_type_2d_scratch svC_scr(member.team_scratch(0), svC.extent(0),  svC.extent(1));
     // 256 threads / team -- 8 teams / SM
     Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svB.extent(0)), [&](const int &i) {
       Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svB.extent(1)), [&](const int &j) {
-        svB_scr(i,j) = svB(i,j); // TODO: reduce bank conflicts, if svB_scr LayoutLeft, writes would be 256 bytes apart
+        svB_scr(i,j) = svB(i,j); // TODO: reduce bank conflicts
       });
     });
 
@@ -1026,26 +1018,52 @@ struct parallel_batched_gemm {
     // Wait for A, B, C to reside in scratch memory
     member.team_barrier();
 
-    // TODO: use 16x16 tiles
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svC.extent(0)),[&](const int &row_idx) { // thread.x
+    // TODO: use 16x16 tiles to reduce scratch size and increase blocks / SM (occupancy)
+#if 0
+    for (unsigned tile_row_idx = 0; tile_row_idx < (unsigned) tiles_per_row; ++tile_row_idx) {
+      unsigned tile_m_start = tile_row_idx * (unsigned) tile_m, tile_m_end = tile_m_start + (unsigned) tile_m;
+      for (unsigned tile_col_idx = 0; tile_col_idx < (unsigned) tiles_per_col; ++tile_col_idx) {
+        unsigned tile_n_start = tile_col_idx * (unsigned) tile_n, tile_n_end = tile_n_start + (unsigned) tile_n;
+        Kokkos::parallel_for(Kokkos::TeamThreadRange(member, tile_m_start, tile_m_end),[&](const int &row_idx) {  // thread.x
           auto svA_row = Kokkos::subview(svA_scr, row_idx, Kokkos::ALL());
-          // svA_row_scr = svA_row
-          // member.team_barrier();
-          Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svC.extent(1)),[&](const int &col_idx) { // thread.y
-                auto svB_col = Kokkos::subview(svB_scr, Kokkos::ALL(), col_idx); //256 bytes apart
-                auto svC_ele = Kokkos::subview(svC, row_idx, col_idx);
+          Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, tile_n_start, tile_n_end),[&](const int &col_idx) {  // thread.y
+            auto svB_col = Kokkos::subview(svB_scr, Kokkos::ALL(), col_idx); //256 bytes apart
+            auto svC_ele = Kokkos::subview(svC, row_idx, col_idx); // TODO: shared mem?
 
-                // TODO: Serial dot -- try to use some registers and then do a
-                // multi-word write to C
-                KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
-                                          BlockingType>::invoke(gemm_args_
-                                                                    .alpha,
-                                                                svA_row,
-                                                                svB_col,
-                                                                gemm_args_.beta,
-                                                                svC_ele);
-              });
+            // TODO: Serial dot -- try to use some registers and then do a
+            // multi-word write to C
+            KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
+                BlockingType>::invoke(gemm_args_
+                                          .alpha,
+                                      svA_row,
+                                      svB_col,
+                                      gemm_args_.beta,
+                                      svC_ele);
+          });
         });
+        // TODO:
+      }
+    }
+
+#else
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svC.extent(0)),[&](const int &row_idx) { // thread.x
+      auto svA_row = Kokkos::subview(svA_scr, row_idx, Kokkos::ALL());
+      // DONE: reduce scratch size and lazy copy svA_row -- svA_row_scr = svA_row: Doesn't work when team_size > 1.
+      Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svC.extent(1)),[&](const int &col_idx) { // thread.y
+        auto svB_col = Kokkos::subview(svB_scr, Kokkos::ALL(), col_idx); //256 bytes apart
+        auto svC_ele = Kokkos::subview(svC, row_idx, col_idx);
+
+        // TODO: Serial dot -- try to use some registers and then do a
+        // multi-word write to C
+        KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
+            BlockingType>::invoke(gemm_args_.alpha,
+                                  svA_row,
+                                  svB_col,
+                                  gemm_args_.beta,
+                                  svC_ele);
+      });
+    });
+#endif
 
 #if 0
     Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svC.extent(0)), [&](const int &row_idx) {
@@ -1119,9 +1137,44 @@ struct parallel_batched_gemm {
     auto svB = Kokkos::subview(gemm_args_.B, Kokkos::ALL(), Kokkos::ALL(), i);
     auto svC = Kokkos::subview(gemm_args_.C, Kokkos::ALL(), Kokkos::ALL(), i);
 
-    KokkosBatched::TeamGemm<MemberType, TransAType, TransBType,
-                            BlockingType>::invoke(member, gemm_args_.alpha, svA,
-                                                  svB, gemm_args_.beta, svC);
+    view_type_2d_scratch svA_scr(member.team_scratch(0), svA.extent(0),  svA.extent(1));
+    view_type_2d_scratch svB_scr(member.team_scratch(0), svB.extent(0),  svB.extent(1));
+    //view_type_2d_scratch svC_scr(member.team_scratch(0), svC.extent(0),  svC.extent(1));
+    // 256 threads / team -- 8 teams / SM
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svB.extent(0)), [&](const int &i) {
+      Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svB.extent(1)), [&](const int &j) {
+        svB_scr(i,j) = svB(i,j); // TODO: reduce bank conflicts, if svB_scr LayoutLeft, writes would be 256 bytes apart
+      });
+    });
+
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svA.extent(0)), [&](const int &i) {
+      Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svA.extent(1)), [&](const int &j) {
+        svA_scr(i,j) = svA(i,j); // TODO: reduce bank conflicts
+      });
+    });
+
+    // Wait for A, B, C to reside in scratch memory
+    member.team_barrier();
+
+    // TODO: use 16x16 tiles
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svC.extent(0)),[&](const int &row_idx) { // thread.x
+      auto svA_row = Kokkos::subview(svA_scr, row_idx, Kokkos::ALL());
+      // svA_row_scr = svA_row
+      // member.team_barrier();
+      Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svC.extent(1)),[&](const int &col_idx) { // thread.y
+        auto svB_col = Kokkos::subview(svB_scr, Kokkos::ALL(), col_idx); // 256 bytes apart
+        auto svC_ele = Kokkos::subview(svC, row_idx, col_idx);
+
+        // TODO: Serial dot -- try to use some registers and then do a
+        // multi-word write to C
+        KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
+            BlockingType>::invoke(gemm_args_.alpha,
+                                  svA_row,
+                                  svB_col,
+                                  gemm_args_.beta,
+                                  svC_ele);
+      });
+    });
   }
 
   KOKKOS_INLINE_FUNCTION
