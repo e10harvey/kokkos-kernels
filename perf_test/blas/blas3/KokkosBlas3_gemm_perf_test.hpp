@@ -1036,6 +1036,10 @@ struct parallel_batched_gemm {
         });
         member.team_barrier();
 
+#if 1
+        auto tileC = Kokkos::subview(svC, Kokkos::make_pair(row_start_idx, row_end_idx), Kokkos::make_pair(col_start_idx, col_end_idx));
+        KokkosBatched::TeamVectorGemm<MemberType, TransAType, TransBType, Algo::Gemm::Unblocked>::invoke(member, gemm_args_.alpha, svA_scr, svB_scr, gemm_args_.beta, tileC);
+#else
         Kokkos::parallel_for(Kokkos::TeamThreadRange(member, row_start_idx, row_end_idx),[&](const int &row_idx) {  // thread.x
           auto tile_i = row_idx - row_tile_offset;
           auto svA_row = Kokkos::subview(svA_scr, tile_i, Kokkos::ALL());
@@ -1052,6 +1056,7 @@ struct parallel_batched_gemm {
                                       svC_ele);
           });
         });
+#endif
       }
     }
 
@@ -1076,6 +1081,7 @@ struct parallel_batched_gemm {
     // Wait for A, B, C to reside in scratch memory
     member.team_barrier();
 
+#if 1
     Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svC.extent(0)),[&](const int &row_idx) { // thread.x
       auto svA_row = Kokkos::subview(svA_scr, row_idx, Kokkos::ALL());
       // DONE: reduce scratch size and lazy copy svA_row -- svA_row_scr = svA_row: Doesn't work when team_size > 1.
@@ -1093,6 +1099,9 @@ struct parallel_batched_gemm {
                                   svC_ele);
       });
     });
+#else
+    KokkosBatched::TeamVectorGemm<MemberType, TransAType, TransBType, Algo::Gemm::Unblocked>::invoke(member, gemm_args_.alpha, svA_scr, svB_scr, gemm_args_.beta, svC);
+#endif
 #endif
 
 #if 0
