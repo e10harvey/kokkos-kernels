@@ -997,6 +997,16 @@ struct parallel_batched_gemm {
         });
   }
 
+  // batchCount, m, n -- k vector in serial
+  // opt2, rangepolicy(0, batchCount*m*n)
+  // TODO: teampolicy(0, batchedCount*numSubBlocks)
+  //    team solves subBlock of C
+  //  FUTURE:
+  //      glblMem->reg pre-fetch
+  //      matrix solve
+  //      reg->shmem
+  //      matrix solve
+  //      repeat
   KOKKOS_INLINE_FUNCTION
   void operator()(const TeamTag &, const MemberType &member) const {
     auto i   = member.league_rank();
@@ -1036,10 +1046,11 @@ struct parallel_batched_gemm {
         });
         member.team_barrier();
 
-#if 1
+#if 0
         auto tileC = Kokkos::subview(svC, Kokkos::make_pair(row_start_idx, row_end_idx), Kokkos::make_pair(col_start_idx, col_end_idx));
         KokkosBatched::TeamVectorGemm<MemberType, TransAType, TransBType, Algo::Gemm::Unblocked>::invoke(member, gemm_args_.alpha, svA_scr, svB_scr, gemm_args_.beta, tileC);
 #else
+        // TODO: load from global memory into registers
         Kokkos::parallel_for(Kokkos::TeamThreadRange(member, row_start_idx, row_end_idx),[&](const int &row_idx) {  // thread.x
           auto tile_i = row_idx - row_tile_offset;
           auto svA_row = Kokkos::subview(svA_scr, tile_i, Kokkos::ALL());
@@ -1056,6 +1067,7 @@ struct parallel_batched_gemm {
                                       svC_ele);
           });
         });
+        // TODO: load from regs to shmem
 #endif
       }
     }
