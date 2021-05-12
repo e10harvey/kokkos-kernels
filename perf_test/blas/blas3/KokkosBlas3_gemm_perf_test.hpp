@@ -813,18 +813,19 @@ template <class MemberType, class TransAType, class TransBType,
           class BlockingType, class AlgoMode = void>
 struct parallel_batched_gemm {
   gemm_args_t gemm_args_;
-  size_t divisor_;
-  unsigned tiles_per_row, tiles_per_col, tile_rows, tile_cols;
+  size_t divisor_, n_sub_blocks;
+  unsigned tiles_per_row, tiles_per_col, blk_m, blk_n, blk_k;;
 
-  parallel_batched_gemm(gemm_args_t gemm_args, bool batch_size_last_dim, size_t divisor = 1, unsigned tile_m = 1, unsigned tile_n = 1)
-      : gemm_args_(gemm_args), divisor_(divisor), tile_rows(tile_m), tile_cols(tile_n) {
+  parallel_batched_gemm(gemm_args_t gemm_args, bool batch_size_last_dim, size_t divisor = 1, unsigned tile_m = 1, unsigned tile_n = 1, unsigned tile_k = 1)
+    : gemm_args_(gemm_args), divisor_(divisor), blk_m(tile_m), blk_n(tile_n), blk_k(tile_k) {
     if (batch_size_last_dim) {
-      tiles_per_row = (unsigned)gemm_args.C.extent(0) / tile_rows;
-      tiles_per_col = (unsigned)gemm_args.C.extent(1) / tile_cols;
+      tiles_per_row = (unsigned)gemm_args.C.extent(0) / blk_m;
+      tiles_per_col = (unsigned)gemm_args.C.extent(1) / blk_n;
     } else {
-      tiles_per_row = (unsigned)gemm_args.C.extent(1) / tile_rows;
-      tiles_per_col = (unsigned)gemm_args.C.extent(2) / tile_cols;
+      tiles_per_row = (unsigned)gemm_args.C.extent(1) / blk_m;
+      tiles_per_col = (unsigned)gemm_args.C.extent(2) / blk_n;
     }
+    n_sub_blocks = tiles_per_row * tiles_per_col;
   }
 
   KOKKOS_INLINE_FUNCTION
@@ -997,11 +998,10 @@ struct parallel_batched_gemm {
         });
   }
 
-  // batchCount, m, n -- k vector in serial
-  // opt2, rangepolicy(0, batchCount*m*n)
   // TODO: teampolicy(0, batchedCount*numSubBlocks)
   //    team solves subBlock of C
-  //  FUTURE:
+  //  PRE-FETCH VERSION:
+  //      batchCount, m, n -- k vector in serial
   //      glblMem->reg pre-fetch
   //      matrix solve
   //      reg->shmem
@@ -1010,63 +1010,67 @@ struct parallel_batched_gemm {
   KOKKOS_INLINE_FUNCTION
   void operator()(const TeamTag &, const MemberType &member) const {
     auto i   = member.league_rank();
-    auto svA = Kokkos::subview(gemm_args_.A, i, Kokkos::ALL(), Kokkos::ALL());
-    auto svB = Kokkos::subview(gemm_args_.B, i, Kokkos::ALL(), Kokkos::ALL());
-    auto svC = Kokkos::subview(gemm_args_.C, i, Kokkos::ALL(), Kokkos::ALL());
+    auto batch_index = i / n_sub_blocks;
+
+    auto svA = Kokkos::subview(gemm_args_.A, batch_index, Kokkos::ALL(), Kokkos::ALL());
+    auto svB = Kokkos::subview(gemm_args_.B, batch_index, Kokkos::ALL(), Kokkos::ALL());
+    auto svC = Kokkos::subview(gemm_args_.C, batch_index, Kokkos::ALL(), Kokkos::ALL());
+    // start_m is the team index in the row dim of the matrix multiplied by the tile size
+    auto team_idx = i % n_sub_blocks;
+    auto start_m = (team_idx / tiles_per_col) * blk_m;
+    auto start_n = (team_idx % tiles_per_col) * blk_n;
+    auto svA_blk = Kokkos::subview(svA, Kokkos::make_pair(start_m, start_m + blk_m), Kokkos::ALL());
+    auto svB_blk = Kokkos::subview(svB, Kokkos::ALL(), Kokkos::make_pair(start_n, start_n + blk_n));
+    auto svC_blk = Kokkos::subview(svC, Kokkos::make_pair(start_m, start_m + blk_m), Kokkos::make_pair(start_n, start_n + blk_n));
 
     // On Volta, we have:
     // 80 SMs / GPU, 2048 threads / SM, 128K shmem / SM
 
-    // DONE: try different layout for sv{A|B}_scr [DONE - perf dropped]
-    view_type_2d_scratch svA_scr(member.team_scratch(0), svA.extent(0),  svA.extent(1));
-    view_type_2d_scratch svB_scr(member.team_scratch(0), svB.extent(0),  svB.extent(1));
+    view_type_2d_scratch svA_scr(member.team_scratch(0), blk_m,  svA.extent(1));
+    view_type_2d_scratch svB_scr(member.team_scratch(0), svB.extent(0),  blk_n);
     //view_type_2d_scratch svC_scr(member.team_scratch(0), svC.extent(0),  svC.extent(1));
     // 256 threads / team -- 8 teams / SM
     Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svB.extent(0)), [&](const int &i) {
-      Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svB.extent(1)), [&](const int &j) {
-        svB_scr(i,j) = svB(i,j); // TODO: reduce bank conflicts
+      Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n), [&](const int &j) {
+        svB_scr(i,j) = svB_blk(i,j); // TODO: reduce bank conflicts
       });
     });
 
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svA.extent(0)), [&](const int &i) {
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &i) {
       Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svA.extent(1)), [&](const int &j) {
-        svA_scr(i,j) = svA(i,j); // TODO: reduce bank conflicts
+        svA_scr(i,j) = svA_blk(i,j); // TODO: reduce bank conflicts
       });
     });
 
-    // Wait for A, B, C to reside in scratch memory
+    // Wait for A, B to reside in scratch memory
     member.team_barrier();
 
+
 #if 0
-    Kokkos::parallel_for(Kokkos::TeamVectorRange(member, 0, svC.extent(0) * svC.extent(1)), [&](const int &ij) {
-      auto row_idx = ij / svC.extent(0), col_idx = ij % svC.extent(0);
-
-      auto svA_row =
-          Kokkos::subview(svA_scr, row_idx, Kokkos::ALL());
-      auto svB_col =
-          Kokkos::subview(svB_scr, Kokkos::ALL(), col_idx);
-      auto svC_ele = Kokkos::subview(svC, row_idx, col_idx);
-
-      KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
-          BlockingType>::invoke(gemm_args_.alpha, svA_row,
-                                svB_col, gemm_args_.beta,
-                                svC_ele);
-
-    });
-#else
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svC.extent(0)), [&](const int &row_idx) {
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &row_idx) {
 	auto svA_row = Kokkos::subview(svA_scr, row_idx, Kokkos::ALL());
-	Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svC.extent(1)), [&](const int &col_idx) {
+	Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n), [&](const int &col_idx) {
 	    auto svB_col = Kokkos::subview(svB_scr, Kokkos::ALL(), col_idx);
-	    auto svC_ele = Kokkos::subview(svC, row_idx, col_idx);
+	    auto svC_ele = Kokkos::subview(svC_blk, row_idx, col_idx);
 
-	    // TODO: Serial dot -- try to use some registers and then do a multi-word write to C
 	    KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
 				      BlockingType>::invoke(gemm_args_.alpha, svA_row,
 							    svB_col, gemm_args_.beta,
 							    svC_ele);
 	  });
       });
+
+#elif 0
+    KokkosBatched::TeamGemm<MemberType, TransAType, TransBType,
+			    BlockingType>::invoke(member, gemm_args_.alpha,
+						  svA_scr, svB_scr, gemm_args_.beta,
+						  svC_blk);
+#else
+    KokkosBatched::TeamVectorGemm<MemberType, TransAType, TransBType,
+                                  Algo::Gemm::Unblocked>::invoke(member,
+                                                        gemm_args_.alpha, svA_scr,
+                                                        svB_scr, gemm_args_.beta,
+                                                        svC_blk);
 #endif
   }
 
@@ -1163,6 +1167,7 @@ struct parallel_batched_gemm {
         Kokkos::subview(gemm_args_.B, team_idx, Kokkos::ALL(), Kokkos::ALL());
     auto svC =
         Kokkos::subview(gemm_args_.C, team_idx, Kokkos::ALL(), Kokkos::ALL());
+
 
     KokkosBatched::TeamVectorGemm<MemberType, TransAType, TransBType,
                                   BlockingType>::invoke(member,
@@ -1387,16 +1392,21 @@ void __do_gemm_parallel_batched_template(options_t options,
 
   STATUS;
 
-  functor_type parallel_batched_gemm_functor(gemm_args, options.blas_args.batch_size_last_dim, divisor, options.tile.m, options.tile.n);
-  // TODO: Set per-team scratch size
+  functor_type parallel_batched_gemm_functor(gemm_args, options.blas_args.batch_size_last_dim, divisor, options.tile.m, options.tile.n, options.tile.k);
 
+  // TODO: For pre-fetch version use:
   // size_t shmem_size =
-  //     view_type_2d_scratch::shmem_size(options.tile.m, gemm_args.dims.a.n) +
-  //     view_type_2d_scratch::shmem_size(gemm_args.dims.b.m, options.tile.n);
+  //     view_type_2d_scratch::shmem_size(options.tile.m, options.tile.k) +
+  //     view_type_2d_scratch::shmem_size(options.tile.k, options.tile.n);
+
   size_t shmem_size =
-      view_type_2d_scratch::shmem_size(gemm_args.dims.a.m, gemm_args.dims.a.n) +
-      view_type_2d_scratch::shmem_size(gemm_args.dims.b.m, gemm_args.dims.b.n);
-      //view_type_2d_scratch ::shmem_size(gemm_args.dims.c.m, gemm_args.dims.c.n);
+      view_type_2d_scratch::shmem_size(options.tile.m, gemm_args.dims.a.n) +
+      view_type_2d_scratch::shmem_size(gemm_args.dims.b.m, options.tile.n);
+
+  if (std::is_same<AlgoTag, TeamTag>::value ||
+      std::is_same<AlgoTag, TeamBatchDim3Tag>::value) {
+    league_size *= parallel_batched_gemm_functor.n_sub_blocks;
+  }
 
   if (options.blas_args.use_auto) {
     for (uint32_t i = 0; i < warm_up_n; i++) {

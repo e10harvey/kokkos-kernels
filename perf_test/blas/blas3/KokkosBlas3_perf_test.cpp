@@ -230,7 +230,7 @@ static void __print_help_blas3_perf_test() {
       "%d)\n",
       DEFAULT_VERIFY);
 
-  printf("\t-f, --tile_size=MxN\n");
+  printf("\t-f, --tile_size=MxNxK\n");
   printf(
       "\t\tTile size selection. Changes how threads are allocated to work in "
       "opt2 tests\n");
@@ -301,6 +301,7 @@ int main(int argc, char **argv) {
   options.blas_args.gemm.beta      = DEFAULT_GEMM_BETA;
   options.tile.m                   = DEFAULT_TILE_SIZE;
   options.tile.n                   = DEFAULT_TILE_SIZE;
+  options.tile.k                   = DEFAULT_TILE_SIZE;
 
   while ((ret = getopt_long(argc, argv,
                             "ht:l:b:e:s:w:i:o:a:c:r:g:z:n:k:u:p:d:v:x:f:",
@@ -428,12 +429,13 @@ int main(int argc, char **argv) {
       case 'v': options.verify = atoi(optarg); break;
       case 'x': options.blas_args.divisor = atoi(optarg); break;
       case 'f':
-        int m, n;
-        if (sscanf(optarg, "%dx%d", &m, &n) != 2)
+        int m, n, k;
+        if (sscanf(optarg, "%dx%dx%d", &m, &n, &k) != 3)
           __blas3_perf_test_input_error(argv, ret, optarg);
 
         options.tile.m = m;
         options.tile.n = n;
+        options.tile.k = k;
         break;
       case 'z': options.blas_args.team_size = atoi(optarg); break;
       case 'n': options.blas_args.vector_len = atoi(optarg); break;
