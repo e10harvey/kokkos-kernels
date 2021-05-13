@@ -998,8 +998,6 @@ struct parallel_batched_gemm {
         });
   }
 
-  // TODO: teampolicy(0, batchedCount*numSubBlocks)
-  //    team solves subBlock of C
   //  PRE-FETCH VERSION:
   //      batchCount, m, n -- k vector in serial
   //      glblMem->reg pre-fetch
@@ -1009,14 +1007,14 @@ struct parallel_batched_gemm {
   //      repeat
   KOKKOS_INLINE_FUNCTION
   void operator()(const TeamTag &, const MemberType &member) const {
-    auto i   = member.league_rank();
-    auto batch_index = i / n_sub_blocks;
+    auto team_idx  = member.league_rank();
+    auto batch_index = team_idx / n_sub_blocks;
 
     auto svA = Kokkos::subview(gemm_args_.A, batch_index, Kokkos::ALL(), Kokkos::ALL());
     auto svB = Kokkos::subview(gemm_args_.B, batch_index, Kokkos::ALL(), Kokkos::ALL());
     auto svC = Kokkos::subview(gemm_args_.C, batch_index, Kokkos::ALL(), Kokkos::ALL());
     // start_m is the team index in the row dim of the matrix multiplied by the tile size
-    auto team_idx = i % n_sub_blocks;
+    auto team_idx = team_idx % n_sub_blocks;
     auto start_m = (team_idx / tiles_per_col) * blk_m;
     auto start_n = (team_idx % tiles_per_col) * blk_n;
     auto svA_blk = Kokkos::subview(svA, Kokkos::make_pair(start_m, start_m + blk_m), Kokkos::ALL());
