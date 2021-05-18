@@ -1527,8 +1527,8 @@ void __do_gemm_parallel_batched_template(options_t options,
       std::is_same<AlgoTag, TeamBatchDim3Tag>::value) {
     league_size *= parallel_batched_gemm_functor.n_sub_blocks;
     //    team_size = options.tile.m * options.tile.n;
-    team_size = options.tile.m;
-    vector_len = options.tile.n;
+    team_size = options.tile.m / REG_M;
+    vector_len = options.tile.n / REG_N;
   }
 
   if (options.blas_args.use_auto) {
