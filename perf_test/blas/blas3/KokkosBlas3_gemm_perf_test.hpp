@@ -60,8 +60,8 @@
 #include "KokkosKernels_TestUtils.hpp"
 
 //#define GEMM_PERF_TEST_DEBUG
-#define REG_M 8
-#define REG_N 8
+#define REG_M 1
+#define REG_N 1
 
 #if 0
 // Source: https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#wmma-example
@@ -823,12 +823,13 @@ struct parallel_batched_gemm {
     if (batch_size_last_dim) {
       tiles_per_row = (unsigned)gemm_args.C.extent(0) / blk_m;
       tiles_per_col = (unsigned)gemm_args.C.extent(1) / blk_n;
+      n_blk_k_blocks = (unsigned)gemm_args.A.extent(1) / blk_k;
     } else {
       tiles_per_row = (unsigned)gemm_args.C.extent(1) / blk_m;
       tiles_per_col = (unsigned)gemm_args.C.extent(2) / blk_n;
+      n_blk_k_blocks = (unsigned)gemm_args.A.extent(2) / blk_k;
     }
     n_sub_blocks = tiles_per_row * tiles_per_col;
-    n_blk_k_blocks = blk_m / blk_k;
   }
 
   KOKKOS_INLINE_FUNCTION
@@ -1017,19 +1018,19 @@ struct parallel_batched_gemm {
     auto svA = Kokkos::subview(gemm_args_.A, batch_index, Kokkos::ALL(), Kokkos::ALL());
     auto svB = Kokkos::subview(gemm_args_.B, batch_index, Kokkos::ALL(), Kokkos::ALL());
     auto svC = Kokkos::subview(gemm_args_.C, batch_index, Kokkos::ALL(), Kokkos::ALL());
-    // start_m is the team index in the row dim of the matrix multiplied by the tile size
+
     auto local_team_idx = team_idx % n_sub_blocks;
     auto start_m = (local_team_idx / tiles_per_col) * blk_m;
     auto start_n = (local_team_idx % tiles_per_col) * blk_n;
-    auto svA_blk = Kokkos::subview(svA, Kokkos::make_pair(start_m, start_m + blk_m), Kokkos::ALL());
-    auto svB_blk = Kokkos::subview(svB, Kokkos::ALL(), Kokkos::make_pair(start_n, start_n + blk_n));
-    auto svC_blk = Kokkos::subview(svC, Kokkos::make_pair(start_m, start_m + blk_m), Kokkos::make_pair(start_n, start_n + blk_n));
+    auto svA_blk = Kokkos::subview(svA, Kokkos::make_pair(start_m, start_m + blk_m), Kokkos::ALL()); // blk_m x k
+    auto svB_blk = Kokkos::subview(svB, Kokkos::ALL(), Kokkos::make_pair(start_n, start_n + blk_n)); // k x blk_n
+    auto svC_blk = Kokkos::subview(svC, Kokkos::make_pair(start_m, start_m + blk_m), Kokkos::make_pair(start_n, start_n + blk_n)); // blk_m x blk_n
 
     // used for reading from glbl mem, while performing blk_k portion of gemm
     default_scalar prefetch_reg_a[REG_M], prefetch_reg_b[REG_N];
 
     // used for performing blk_k portion of gemm
-    default_scalar reg_a[REG_M], reg_b[REG_N], reg_c = 0;
+    default_scalar /*reg_a[REG_M], reg_b[REG_N],*/ reg_c[REG_M][REG_N] = { {0} };
 
     // On Volta, we have:
     // 80 SMs / GPU, 2048 threads / SM, 128K shmem / SM
@@ -1039,15 +1040,16 @@ struct parallel_batched_gemm {
     view_type_2d_scratch svB_scr(member.team_scratch(0), blk_k, blk_n);
 
     // Here, we populate scratch memory with one or more blk_k for every thread of the team!
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_n), [&](const int &i) {
-      Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &j) {
-	svB_scr(j,i) = svB_blk(j,i);
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_n), [&](const int &thread_id) {
+      Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
+          // TODO: consider transposing into svB_scr here for coalesced shmem reads
+          svB_scr(vlane_id, thread_id) = svB_blk(vlane_id, thread_id);
       });
     });
 
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &i) {
-      Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &j) {
-        svA_scr(i,j) = svA_blk(i,j);
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &thread_id) {
+      Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
+          svA_scr(thread_id, vlane_id) = svA_blk(thread_id, vlane_id);
       });
     });
 
@@ -1055,101 +1057,140 @@ struct parallel_batched_gemm {
     member.team_barrier();
 
 
-    // Each thread calculates dot products in chunks of size blk_k
-    // We have league_size threads, so, we cannot fit every thread's data into shared memory.
-    // This means we must use our pre-fetch registers to fetch "this" thread's next blk_k block
-    // from global memory -- and we can trust that we can synchronize with "this" thread!
+    // TODO: move the n_blk_k_blocks for-loop within a single parallel_for pair
+
+    // Each thread calculates a single dot product in chunks of size blk_k
     for (int k = 1; k < n_blk_k_blocks; ++k) {
       auto k_block_offset = k * blk_k;
+
       // Get this threads next blk_k entries from global memory
-      // Each thread has its own copy of prefetch_reg_a. TeamThreadRange runs over all threads in the team.
-      Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_n), [&](const int &i) {
-        Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &j) {
-            prefetch_reg_b[j] = svB_blk(j + k_block_offset, i);
-        });
+      // Each thread has its own copy of prefetch_reg_b. TeamThreadRange runs over all threads in the team.
+      Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_n), [&](const int &thread_id) {
+          Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
+            for (int i = 0; i < REG_N; ++i)
+              // TODO: account for i on RHS
+              prefetch_reg_b[i] = svB_blk(vlane_id + k_block_offset, thread_id);
+          });
       });
 
+      // Get this threads next blk_k entries from global memory
       // Each thread has its own copy of prefetch_reg_b. TeamThreadRange runs over all threads in the team.
-      Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &i) {
-        Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &j) {
-            prefetch_reg_a[j] = svA_blk(i, j + k_block_offset);
-        });
+      Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &thread_id) {
+          Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
+              for (int i = 0; i < REG_M; ++i)
+                // TODO: account for i on RHS
+                prefetch_reg_a[i] = svA_blk(thread_id, vlane_id + k_block_offset);
+          });
       });
 
       // populate reg_a and reg_b from shmem
-      Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_n), [&](const int &i) {
-        Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &j) {
-          reg_b[j] = svB_scr(j,i);
-        });
-      });
+      // Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_n), [&](const int &thread_id) {
+      //     Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, REG_N), [&](const int &vlane_id) {
+      //      //for (int i = 0; i < REG_N; ++i)
+      //       reg_b[i] = svB_scr(i, thread_id);
+      //     });
+      // });
 
-      Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &i) {
-        Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &j) {
-          reg_a[j] = svA_scr(i,j);
-        });
-      });
+      // Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &thread_id) {
+      //     Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, REG_M), [&](const int &i) {
+      //     //for (int i = 0; i < REG_M; ++i)
+      //       reg_a[i] = svA_scr(thread_id, i);
+      //     });
+      // });
 
-      // Rely on read after write dependency here??
-      Kokkos::parallel_for(Kokkos::TeamVectorRange(member, 0, blk_k), [&](const int &i) {
-          reg_c += reg_a[i] * reg_b[i];
-      });
+      // Multiply
+      Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &thread_id) {
+          auto svA_row = Kokkos::subview(svA_scr, thread_id, Kokkos::ALL());
+
+          Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n), [&](const int &vlane_id) {
+              auto svB_col = Kokkos::subview(svB_scr, Kokkos::ALL(), vlane_id);
+
+              SerialGemmInternal<BlockingType>::
+                invoke(size_t(REG_M), size_t(REG_N), size_t(1),
+                       gemm_args_.alpha,
+                       svA_row.data(), svA_row.stride_1(), svA_row.stride_0(),
+                       svB_col.data(), svB_col.stride_0(), svB_col.stride_1(),
+                       default_scalar(1),
+                       &reg_c[0][0],   size_t(REG_N),      size_t(1));
+          });
+        });
 
       // Wait for:
-      //   1. prefetch_regs to be populated??
-      //   2. for reg_c to be populated??
-      //   3. for shmem to no longer be read from
+      //   1. prefetch_regs to be populated
+      //   2. for shmem to no longer be read from
       member.team_barrier();
 
       // populate shmem from prefetch registers. Each thread has its own copy of prefetch_reg_a.
-      Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_n), [&](const int &i) {
-        Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &j) {
-          svB_scr(j,i) = prefetch_reg_b[j];
+      Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_n), [&](const int &thread_id) {
+        Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
+            for (int i = 0; i < REG_M; ++i)
+              svB_scr(vlane_id, thread_id) = prefetch_reg_b[i];
         });
       });
 
       // populate shmem from prefetch registers. Each thread has its own copy of prefetch_reg_b.
-      Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &i) {
-        Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &j) {
-          svA_scr(i,j) = prefetch_reg_a[j];
+      Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &thread_id) {
+        Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
+            for (int i = 0; i < REG_N; ++i)
+              svA_scr(thread_id, vlane_id) = prefetch_reg_a[i];
         });
       });
 
-      // Wait for shmem stores to land before populating reg_a and reg_b from shmem
+      // Wait for shmem stores to land before performing next blk_k multiply
       member.team_barrier();
     } // end n_blk_k_blocks loop
 
-    // handle last block
-    // populate reg_a and reg_b from shmem
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_n), [&](const int &i) {
-      Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &j) {
-        reg_b[j] = svB_scr(j,i);
+    // Multiply last blk_k block
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &thread_id) {
+        auto svA_row = Kokkos::subview(svA_scr, thread_id, Kokkos::ALL());
+
+        Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n), [&](const int &vlane_id) {
+            auto svB_col = Kokkos::subview(svB_scr, Kokkos::ALL(), vlane_id);
+
+            SerialGemmInternal<BlockingType>::
+              invoke(size_t(REG_M), size_t(REG_N), size_t(1),
+                     gemm_args_.alpha,
+                     svA_row.data(), svA_row.stride_1(), svA_row.stride_0(),
+                     svB_col.data(), svB_col.stride_0(), svB_col.stride_1(),
+                     default_scalar(1),
+                     &reg_c[0][0],   size_t(REG_N),      size_t(1));
+          });
+      });
+
+    // // populate reg_a and reg_b from shmem
+    // Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_n), [&](const int &i) {
+    //   Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &j) {
+    //     reg_b[j] = svB_scr(j,i);
+    //   });
+    // });
+
+    // Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &i) {
+    //   Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &j) {
+    //     reg_a[j] = svA_scr(i,j);
+    //   });
+    // });
+
+    // // Rely on read after write dependency here??
+    // Kokkos::parallel_for(Kokkos::TeamVectorRange(member, 0, blk_k), [&](const int &i) {
+    //     reg_c += reg_a[i] * reg_b[i];
+    // });
+
+    // // TODO: account for alpha != 1 and beta != 0
+    // // dot product complete
+    // member.team_barrier();
+
+    // store results back to global memory
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &thread_id) {
+      Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n), [&](const int &vlane_id) {
+          for (int m = 0; m < REG_M; ++m) {
+            for (int n = 0; n < REG_N; ++n) {
+              // Assume that each thread is computing multiple rows and each vector lane is computing multiple columns
+              auto c_val = svC_blk(thread_id + m, vlane_id + n);
+              svC_blk(thread_id + m, vlane_id + n) = reg_c[m][n] + c_val * gemm_args_.beta;
+            }
+          }
       });
     });
-
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &i) {
-      Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &j) {
-        reg_a[j] = svA_scr(i,j);
-      });
-    });
-
-    // Rely on read after write dependency here??
-    Kokkos::parallel_for(Kokkos::TeamVectorRange(member, 0, blk_k), [&](const int &i) {
-        reg_c += reg_a[i] * reg_b[i];
-    });
-
-    // TODO: account for alpha != 1 and beta != 0
-    // dot product complete
-    member.team_barrier();
-
-    // store results back to memory
-    // We are assuming there is a 1:1 mapping between blk_m * blk_n and the team size.
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svC_blk.extent(0)), [&](const int &i) {
-      Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svC_blk.extent(1)), [&](const int &j) {
-          svC_blk(i,j) = reg_c;
-      });
-    });
-
-
   }
 
   KOKKOS_INLINE_FUNCTION
@@ -1472,19 +1513,22 @@ void __do_gemm_parallel_batched_template(options_t options,
 
   functor_type parallel_batched_gemm_functor(gemm_args, options.blas_args.batch_size_last_dim, divisor, options.tile.m, options.tile.n, options.tile.k);
 
-  // TODO: For pre-fetch version use:
-  // size_t shmem_size =
-  //     view_type_2d_scratch::shmem_size(options.tile.m, options.tile.k) +
-  //     view_type_2d_scratch::shmem_size(options.tile.k, options.tile.n);
-
+  // For pre-fetch version:
   size_t shmem_size =
-      view_type_2d_scratch::shmem_size(options.tile.m, gemm_args.dims.a.n) +
-      view_type_2d_scratch::shmem_size(gemm_args.dims.b.m, options.tile.n);
+      view_type_2d_scratch::shmem_size(options.tile.m, options.tile.k) +
+      view_type_2d_scratch::shmem_size(options.tile.k, options.tile.n);
+
+  // For tiling without pre-fetch version:
+  // size_t shmem_size =
+  //     view_type_2d_scratch::shmem_size(options.tile.m, gemm_args.dims.a.n) +
+  //     view_type_2d_scratch::shmem_size(gemm_args.dims.b.m, options.tile.n);
 
   if (std::is_same<AlgoTag, TeamTag>::value ||
       std::is_same<AlgoTag, TeamBatchDim3Tag>::value) {
     league_size *= parallel_batched_gemm_functor.n_sub_blocks;
-    team_size = options.tile.m * options.tile.n;
+    //    team_size = options.tile.m * options.tile.n;
+    team_size = options.tile.m;
+    vector_len = options.tile.n;
   }
 
   if (options.blas_args.use_auto) {
