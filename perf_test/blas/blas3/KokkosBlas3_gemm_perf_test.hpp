@@ -1026,11 +1026,11 @@ struct parallel_batched_gemm {
     auto svC = Kokkos::subview(gemm_args_.C, i, Kokkos::ALL(), Kokkos::ALL());
 
     view_type_2d_scratch svA_scr(member.team_scratch(0), svA.extent(0),  svA.extent(1));
-    view_type_2d_scratch svB_scr(member.team_scratch(0), svB.extent(0),  svB.extent(1));
+    view_type_2d_scratch svB_scr(member.team_scratch(0), svB.extent(1),  svB.extent(0));
 
     Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svB.extent(0)), [&](const int &i) {
 	Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svB.extent(1)), [&](const int &j) {
-	    svB_scr(i,j) = svB(i,j); // TODO: reduce bank conflicts
+	    svB_scr(j,i) = svB(i,j); // TODO: reduce bank conflicts
 	  });
       });
 
@@ -1047,7 +1047,7 @@ struct parallel_batched_gemm {
 	auto svA_row = Kokkos::subview(svA_scr, row_idx, Kokkos::ALL());
 	// DONE: reduce scratch size and lazy copy svA_row -- svA_row_scr = svA_row: Doesn't work when team_size > 1.
 	Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svC.extent(1)),[&](const int &col_idx) {
-	    auto svB_col = Kokkos::subview(svB_scr, Kokkos::ALL(), col_idx); //256 bytes apart
+	    auto svB_col = Kokkos::subview(svB_scr, col_idx, Kokkos::ALL());
 	    auto svC_ele = Kokkos::subview(svC, row_idx, col_idx);
 
 	    KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
@@ -1628,7 +1628,7 @@ void __do_gemm_parallel_batched_template(options_t options,
       std::is_same<AlgoTag, TeamShmemBatchDim3Tag>::value) {
     shmem_size =
       view_type_2d_scratch::shmem_size(gemm_args.dims.a.m, gemm_args.dims.a.n) +
-      view_type_2d_scratch::shmem_size(gemm_args.dims.b.m, gemm_args.dims.b.n);
+      view_type_2d_scratch::shmem_size(gemm_args.dims.b.n, gemm_args.dims.b.m);
   }
   // For tiling without pre-fetch version:
   // size_t shmem_size =
