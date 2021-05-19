@@ -1209,13 +1209,20 @@ struct parallel_batched_gemm {
 	  Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n), [&](const int &vlane_id) {
 	      auto svB_col = Kokkos::subview(svB_scr, Kokkos::ALL(), vlane_id);
 
-	      SerialGemmInternal<BlockingType>::
-		invoke(size_t(REG_M), size_t(REG_N), size_t(blk_k),
-		       gemm_args_.alpha,
-		       svA_row.data(), svA_row.stride_1(), svA_row.stride_0(),
-		       svB_col.data(), svB_col.stride_0(), svB_col.stride_1(),
-		       default_scalar(1),
-		       &reg_c[0][0],   size_t(REG_N),      size_t(1));
+#if 1
+#pragma unroll
+              for (int k = 0; k < blk_k; ++k) {
+              reg_c[0][0] += svA_row(k) * svB_col(k) * gemm_args_.alpha;
+            }
+#else
+              SerialGemmInternal<BlockingType>::
+                invoke(size_t(REG_M), size_t(REG_N), size_t(blk_k),
+                gemm_args_.alpha,
+                svA_row.data(), svA_row.stride_1(), svA_row.stride_0(),
+                svB_col.data(), svB_col.stride_0(), svB_col.stride_1(),
+                default_scalar(1),
+                &reg_c[0][0],   size_t(REG_N),      size_t(1));
+#endif
 	    });
 	});
 
@@ -1253,13 +1260,20 @@ struct parallel_batched_gemm {
 	Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n), [&](const int &vlane_id) {
 	    auto svB_col = Kokkos::subview(svB_scr, Kokkos::ALL(), vlane_id);
 
+#if 1
+#pragma unroll
+            for (int k = 0; k < blk_k; ++k) {
+              reg_c[0][0] += svA_row(k) * svB_col(k) * gemm_args_.alpha;
+            }
+#else
 	    SerialGemmInternal<BlockingType>::
 	      invoke(size_t(REG_M), size_t(REG_N), size_t(blk_k),
-		     gemm_args_.alpha,
-		     svA_row.data(), svA_row.stride_1(), svA_row.stride_0(),
-		     svB_col.data(), svB_col.stride_0(), svB_col.stride_1(),
-		     default_scalar(1),
-		     &reg_c[0][0],   size_t(REG_N),      size_t(1));
+	             gemm_args_.alpha,
+	             svA_row.data(), svA_row.stride_1(), svA_row.stride_0(),
+	             svB_col.data(), svB_col.stride_0(), svB_col.stride_1(),
+	             default_scalar(1),
+	             &reg_c[0][0],   size_t(REG_N),      size_t(1));
+#endif
 	  });
       });
 
