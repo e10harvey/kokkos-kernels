@@ -1103,23 +1103,21 @@ struct parallel_batched_gemm {
       // });
 
       // Multiply
-      for (int i = 0; i < blk_k; ++i) {
-	Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &thread_id) {
-	    auto svA_row = Kokkos::subview(svA_scr, thread_id, i);
+      Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &thread_id) {
+	  auto svA_row = Kokkos::subview(svA_scr, thread_id, Kokkos::ALL());
 
-	    Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n), [&](const int &vlane_id) {
-		auto svB_col = Kokkos::subview(svB_scr, i, vlane_id);
+	  Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n), [&](const int &vlane_id) {
+	      auto svB_col = Kokkos::subview(svB_scr, Kokkos::ALL(), vlane_id);
 
-		SerialGemmInternal<BlockingType>::
-		  invoke(size_t(REG_M), size_t(REG_N), size_t(1),
-			 gemm_args_.alpha,
-			 svA_row.data(), svA_row.stride_1(), svA_row.stride_0(),
-			 svB_col.data(), svB_col.stride_0(), svB_col.stride_1(),
-			 default_scalar(1),
-			 &reg_c[0][0],   size_t(REG_N),      size_t(1));
-	      });
-	  });
-      }
+	      SerialGemmInternal<BlockingType>::
+		invoke(size_t(REG_M), size_t(REG_N), size_t(blk_k),
+		       gemm_args_.alpha,
+		       svA_row.data(), svA_row.stride_1(), svA_row.stride_0(),
+		       svB_col.data(), svB_col.stride_0(), svB_col.stride_1(),
+		       default_scalar(1),
+		       &reg_c[0][0],   size_t(REG_N),      size_t(1));
+	    });
+	});
 
       // Wait for:
       //   1. prefetch_regs to be populated
@@ -1149,23 +1147,21 @@ struct parallel_batched_gemm {
     } // end n_blk_k_blocks loop
 
     // Multiply last blk_k block
-    for (int i = 0; i < blk_k; ++i) {
-      Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &thread_id) {
-	  auto svA_row = Kokkos::subview(svA_scr, thread_id, i);
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &thread_id) {
+	auto svA_row = Kokkos::subview(svA_scr, thread_id, Kokkos::ALL());
 
-	  Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n), [&](const int &vlane_id) {
-	      auto svB_col = Kokkos::subview(svB_scr, i, vlane_id);
+	Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n), [&](const int &vlane_id) {
+	    auto svB_col = Kokkos::subview(svB_scr, Kokkos::ALL(), vlane_id);
 
-	      SerialGemmInternal<BlockingType>::
-		invoke(size_t(REG_M), size_t(REG_N), size_t(1),
-		       gemm_args_.alpha,
-		       svA_row.data(), svA_row.stride_1(), svA_row.stride_0(),
-		       svB_col.data(), svB_col.stride_0(), svB_col.stride_1(),
-		       default_scalar(1),
-		       &reg_c[0][0],   size_t(REG_N),      size_t(1));
-	    });
-	});
-    }
+	    SerialGemmInternal<BlockingType>::
+	      invoke(size_t(REG_M), size_t(REG_N), size_t(blk_k),
+		     gemm_args_.alpha,
+		     svA_row.data(), svA_row.stride_1(), svA_row.stride_0(),
+		     svB_col.data(), svB_col.stride_0(), svB_col.stride_1(),
+		     default_scalar(1),
+		     &reg_c[0][0],   size_t(REG_N),      size_t(1));
+	  });
+      });
 
     // // populate reg_a and reg_b from shmem
     // Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_n), [&](const int &i) {
