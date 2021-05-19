@@ -1037,14 +1037,14 @@ struct parallel_batched_gemm {
 
     // shmem needs enough room for blk_k * team_size for both A and B
     view_type_2d_scratch svA_scr(member.team_scratch(0), blk_m, blk_k);
-    view_type_2d_scratch svB_scr(member.team_scratch(0), blk_n, blk_k);
+    view_type_2d_scratch svB_scr(member.team_scratch(0), blk_k, blk_n);
 
     // Here, we populate scratch memory with one or more blk_k for every thread of the team!
-    // Transpose entries into svB_scr
     Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_n), [&](const int &thread_id) {
       Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
+          // TODO: consider transposing into svB_scr here for coalesced shmem reads
 	  //printf("svB_blk(%d, %d)\n", vlane_id, thread_id);
-          svB_scr(thread_id, vlane_id) = svB_blk(vlane_id, thread_id);
+          svB_scr(vlane_id, thread_id) = svB_blk(vlane_id, thread_id);
       });
     });
 
@@ -1107,7 +1107,7 @@ struct parallel_batched_gemm {
 	  auto svA_row = Kokkos::subview(svA_scr, thread_id, Kokkos::ALL());
 
 	  Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n), [&](const int &vlane_id) {
-	      auto svB_col = Kokkos::subview(svB_scr, vlane_id, Kokkos::ALL());
+	      auto svB_col = Kokkos::subview(svB_scr, Kokkos::ALL(), vlane_id);
 
 	      SerialGemmInternal<BlockingType>::
 		invoke(size_t(REG_M), size_t(REG_N), size_t(blk_k),
@@ -1129,7 +1129,7 @@ struct parallel_batched_gemm {
         Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
             for (int i = 0; i < REG_M; ++i) {
 	      //printf("prefetch_reg_b@%p = %g\n", &prefetch_reg_b[i], prefetch_reg_b[i]);
-              svB_scr(thread_id, vlane_id) = prefetch_reg_b[i];
+              svB_scr(vlane_id, thread_id) = prefetch_reg_b[i];
 	    }
         });
       });
@@ -1151,7 +1151,7 @@ struct parallel_batched_gemm {
 	auto svA_row = Kokkos::subview(svA_scr, thread_id, Kokkos::ALL());
 
 	Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n), [&](const int &vlane_id) {
-	    auto svB_col = Kokkos::subview(svB_scr, vlane_id, Kokkos::ALL());
+	    auto svB_col = Kokkos::subview(svB_scr, Kokkos::ALL(), vlane_id);
 
 	    SerialGemmInternal<BlockingType>::
 	      invoke(size_t(REG_M), size_t(REG_N), size_t(blk_k),
