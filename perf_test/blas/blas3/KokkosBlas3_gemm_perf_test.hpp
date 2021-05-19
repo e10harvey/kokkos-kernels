@@ -1036,7 +1036,7 @@ struct parallel_batched_gemm {
     // 80 SMs / GPU, 2048 threads / SM, 128K shmem / SM
 
     // shmem needs enough room for blk_k * team_size for both A and B
-    view_type_2d_scratch svA_scr(member.team_scratch(0), blk_m, blk_k);
+    view_type_2d_scratch svA_scr(member.team_scratch(0), blk_k, blk_m);
     view_type_2d_scratch svB_scr(member.team_scratch(0), blk_k, blk_n);
 
     // Here, we populate scratch memory with one or more blk_k for every thread of the team!
@@ -1050,7 +1050,7 @@ struct parallel_batched_gemm {
 
     Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &thread_id) {
       Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
-          svA_scr(thread_id, vlane_id) = svA_blk(thread_id, vlane_id);
+          svA_scr(vlane_id, thread_id) = svA_blk(thread_id, vlane_id);
       });
     });
 
@@ -1104,7 +1104,7 @@ struct parallel_batched_gemm {
 
       // Multiply
       Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &thread_id) {
-	  auto svA_row = Kokkos::subview(svA_scr, thread_id, Kokkos::ALL());
+	  auto svA_row = Kokkos::subview(svA_scr, Kokkos::ALL(), thread_id);
 
 	  Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n), [&](const int &vlane_id) {
 	      auto svB_col = Kokkos::subview(svB_scr, Kokkos::ALL(), vlane_id);
@@ -1138,7 +1138,7 @@ struct parallel_batched_gemm {
       Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &thread_id) {
         Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
             for (int i = 0; i < REG_N; ++i)
-              svA_scr(thread_id, vlane_id) = prefetch_reg_a[i];
+              svA_scr(vlane_id, thread_id) = prefetch_reg_a[i];
         });
       });
 
@@ -1148,7 +1148,7 @@ struct parallel_batched_gemm {
 
     // Multiply last blk_k block
     Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m), [&](const int &thread_id) {
-	auto svA_row = Kokkos::subview(svA_scr, thread_id, Kokkos::ALL());
+	auto svA_row = Kokkos::subview(svA_scr, Kokkos::ALL(), thread_id);
 
 	Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n), [&](const int &vlane_id) {
 	    auto svB_col = Kokkos::subview(svB_scr, Kokkos::ALL(), vlane_id);
