@@ -105,6 +105,8 @@ void do_gemm_serial_simd_batched_blocked_parallel(options_t options);
 void do_gemm_serial_batched_compact_mkl_parallel(options_t options);
 void do_gemm_team_batched_parallel(options_t options);
 void do_gemm_team_batched_blocked_parallel(options_t options);
+void do_gemm_team_shmem_batched_parallel(options_t options);
+void do_gemm_team_shmem_batched_blocked_parallel(options_t options);
 void do_gemm_team_vector_batched_parallel(options_t options);
 void do_gemm_team_vector_batched_blocked_parallel(options_t options);
 void do_gemm_team_simd_batched_parallel(options_t options);
@@ -115,6 +117,8 @@ struct SerialTag {};
 struct SerialBatchDim3Tag {};
 struct SerialSimdTag {};
 struct SerialSimdBatchDim3Tag {};
+struct TeamShmemTag {};
+struct TeamShmemBatchDim3Tag {};
 struct TeamTag {};
 struct TeamBatchDim3Tag {};
 struct TeamVectorTag {};
@@ -182,6 +186,8 @@ void (*do_gemm_invoke[LOOP_N][TEST_N])(options_t) = {
         do_gemm_serial_batched_compact_mkl_parallel,  // Serial MKL
         do_gemm_team_batched_parallel,                // Team
         do_gemm_team_batched_blocked_parallel,
+        do_gemm_team_shmem_batched_parallel,                // Team_Shmem
+        do_gemm_team_shmem_batched_blocked_parallel,
         do_gemm_team_opt1_batched_parallel,
         do_gemm_team_opt1_batched_blocked_parallel,
         do_gemm_team_optdivisor_batched_blocked_parallel,  // Team OptDivisor
@@ -770,6 +776,16 @@ struct parallel_batched_gemm_range_policy {
   }
 
   KOKKOS_INLINE_FUNCTION
+  void operator()(const TeamShmemTag &, const int &i) const {
+    Kokkos::abort("TeamShmemTag not supported using RangePolicy.");
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  void operator()(const TeamShmemBatchDim3Tag &, const int &i) const {
+    Kokkos::abort("TeamShmemBatchDim3Tag not supported using RangePolicy.");
+  }
+
+  KOKKOS_INLINE_FUNCTION
   void operator()(const TeamTagOpt1 &, const int &i) const {
     Kokkos::abort("TeamTagOpt1 not supported using RangePolicy.");
   }
@@ -1000,6 +1016,90 @@ struct parallel_batched_gemm {
                                                           svB, gemm_args_.beta,
                                                           svC);
         });
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  void operator()(const TeamShmemTag &, const MemberType &member) const {
+    auto i   = member.league_rank();
+    auto svA = Kokkos::subview(gemm_args_.A, i, Kokkos::ALL(), Kokkos::ALL());
+    auto svB = Kokkos::subview(gemm_args_.B, i, Kokkos::ALL(), Kokkos::ALL());
+    auto svC = Kokkos::subview(gemm_args_.C, i, Kokkos::ALL(), Kokkos::ALL());
+
+    view_type_2d_scratch svA_scr(member.team_scratch(0), svA.extent(0),  svA.extent(1));
+    view_type_2d_scratch svB_scr(member.team_scratch(0), svB.extent(0),  svB.extent(1));
+
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svB.extent(0)), [&](const int &i) {
+	Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svB.extent(1)), [&](const int &j) {
+	    svB_scr(i,j) = svB(i,j); // TODO: reduce bank conflicts
+	  });
+      });
+
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svA.extent(0)), [&](const int &i) {
+	Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svA.extent(1)), [&](const int &j) {
+	    svA_scr(i,j) = svA(i,j); // TODO: reduce bank conflicts
+	  });
+      });
+
+    // Wait for A and B to reside in scratch memory
+    member.team_barrier();
+
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svC.extent(0)),[&](const int &row_idx) {
+	auto svA_row = Kokkos::subview(svA_scr, row_idx, Kokkos::ALL());
+	// DONE: reduce scratch size and lazy copy svA_row -- svA_row_scr = svA_row: Doesn't work when team_size > 1.
+	Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svC.extent(1)),[&](const int &col_idx) {
+	    auto svB_col = Kokkos::subview(svB_scr, Kokkos::ALL(), col_idx); //256 bytes apart
+	    auto svC_ele = Kokkos::subview(svC, row_idx, col_idx);
+
+	    KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
+				      BlockingType>::invoke(gemm_args_.alpha,
+							    svA_row,
+							    svB_col,
+							    gemm_args_.beta,
+							    svC_ele);
+	  });
+      });
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  void operator()(const TeamShmemBatchDim3Tag &, const MemberType &member) const {
+    auto i   = member.league_rank();
+    auto svA = Kokkos::subview(gemm_args_.A, Kokkos::ALL(), Kokkos::ALL(), i);
+    auto svB = Kokkos::subview(gemm_args_.B, Kokkos::ALL(), Kokkos::ALL(), i);
+    auto svC = Kokkos::subview(gemm_args_.C, Kokkos::ALL(), Kokkos::ALL(), i);
+
+    view_type_2d_scratch svA_scr(member.team_scratch(0), svA.extent(0),  svA.extent(1));
+    view_type_2d_scratch svB_scr(member.team_scratch(0), svB.extent(0),  svB.extent(1));
+
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svB.extent(0)), [&](const int &i) {
+	Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svB.extent(1)), [&](const int &j) {
+	    svB_scr(i,j) = svB(i,j); // TODO: reduce bank conflicts
+	  });
+      });
+
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svA.extent(0)), [&](const int &i) {
+	Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svA.extent(1)), [&](const int &j) {
+	    svA_scr(i,j) = svA(i,j); // TODO: reduce bank conflicts
+	  });
+      });
+
+    // Wait for A and B to reside in scratch memory
+    member.team_barrier();
+
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svC.extent(0)),[&](const int &row_idx) {
+	auto svA_row = Kokkos::subview(svA_scr, row_idx, Kokkos::ALL());
+	// DONE: reduce scratch size and lazy copy svA_row -- svA_row_scr = svA_row: Doesn't work when team_size > 1.
+	Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svC.extent(1)),[&](const int &col_idx) {
+	    auto svB_col = Kokkos::subview(svB_scr, Kokkos::ALL(), col_idx); //256 bytes apart
+	    auto svC_ele = Kokkos::subview(svC, row_idx, col_idx);
+
+	    KokkosBatched::SerialGemm<Trans::Transpose, TransBType,
+				      BlockingType>::invoke(gemm_args_.alpha,
+							    svA_row,
+							    svB_col,
+							    gemm_args_.beta,
+							    svC_ele);
+	  });
+      });
   }
 
   // TODO: PRE-FETCH VERSION:
@@ -1524,6 +1624,12 @@ void __do_gemm_parallel_batched_template(options_t options,
       view_type_2d_scratch::shmem_size(options.tile.m, options.tile.k) +
       view_type_2d_scratch::shmem_size(options.tile.k, options.tile.n);
 
+  if (std::is_same<AlgoTag, TeamShmemTag>::value ||
+      std::is_same<AlgoTag, TeamShmemBatchDim3Tag>::value) {
+    shmem_size =
+      view_type_2d_scratch::shmem_size(gemm_args.dims.a.m, gemm_args.dims.a.n) +
+      view_type_2d_scratch::shmem_size(gemm_args.dims.b.m, gemm_args.dims.b.n);
+  }
   // For tiling without pre-fetch version:
   // size_t shmem_size =
   //     view_type_2d_scratch::shmem_size(options.tile.m, gemm_args.dims.a.n) +
@@ -2913,6 +3019,34 @@ void do_gemm_team_batched_blocked_parallel(options_t options) {
   else
     __do_loop_and_invoke(
         options, __do_gemm_parallel_batched<TeamTag, Algo::Gemm::Blocked,
+                                            default_device>);
+  return;
+}
+
+void do_gemm_team_shmem_batched_parallel(options_t options) {
+  STATUS;
+  if (options.blas_args.batch_size_last_dim)
+    __do_loop_and_invoke(
+        options,
+        __do_gemm_parallel_batched<TeamShmemBatchDim3Tag, Algo::Gemm::Unblocked,
+                                   default_device>);
+  else
+    __do_loop_and_invoke(
+        options, __do_gemm_parallel_batched<TeamShmemTag, Algo::Gemm::Unblocked,
+                                            default_device>);
+  return;
+}
+
+void do_gemm_team_shmem_batched_blocked_parallel(options_t options) {
+  STATUS;
+  if (options.blas_args.batch_size_last_dim)
+    __do_loop_and_invoke(
+        options,
+        __do_gemm_parallel_batched<TeamShmemBatchDim3Tag, Algo::Gemm::Blocked,
+                                   default_device>);
+  else
+    __do_loop_and_invoke(
+        options, __do_gemm_parallel_batched<TeamShmemTag, Algo::Gemm::Blocked,
                                             default_device>);
   return;
 }
