@@ -62,6 +62,9 @@
 //#define GEMM_PERF_TEST_DEBUG
 #define REG_M 1
 #define REG_N 1
+#define blk_m 16
+#define blk_n 32
+#define blk_k 32
 
 #if 0
 // Source: https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#wmma-example
@@ -832,10 +835,10 @@ template <class MemberType, class TransAType, class TransBType,
 struct parallel_batched_gemm {
   gemm_args_t gemm_args_;
   size_t divisor_, n_sub_blocks, n_blk_k_blocks;
-  unsigned tiles_per_row, tiles_per_col, blk_m, blk_n, blk_k;;
+  unsigned tiles_per_row, tiles_per_col;//, blk_m, blk_n, blk_k;;
 
   parallel_batched_gemm(gemm_args_t gemm_args, bool batch_size_last_dim, size_t divisor = 1, unsigned tile_m = 1, unsigned tile_n = 1, unsigned tile_k = 1)
-    : gemm_args_(gemm_args), divisor_(divisor), blk_m(tile_m), blk_n(tile_n), blk_k(tile_k) {
+    : gemm_args_(gemm_args), divisor_(divisor) { // , blk_m(tile_m), blk_n(tile_n), blk_k(tile_k)
     if (batch_size_last_dim) {
       tiles_per_row = (unsigned)gemm_args.C.extent(0) / blk_m;
       tiles_per_col = (unsigned)gemm_args.C.extent(1) / blk_n;
