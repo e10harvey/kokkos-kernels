@@ -60,8 +60,9 @@
 #include "KokkosKernels_TestUtils.hpp"
 
 //#define GEMM_PERF_TEST_DEBUG
-#define REG_M 2
+#define REG_M 4
 #define REG_N 4
+#define STRIDE 8
 
 #if 0
 // Source: https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#wmma-example
