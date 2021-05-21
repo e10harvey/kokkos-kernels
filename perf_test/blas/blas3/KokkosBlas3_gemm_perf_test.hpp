@@ -1138,47 +1138,52 @@ struct parallel_batched_gemm {
 
     // Here, we populate scratch memory with one or more blk_k for every thread of the team!
     Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_n / REG_N), [&](const int &thread_id) {
-      Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
+        auto thread_offset = thread_id * REG_N;
+        Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
-          for (int i = 0; i < REG_N; ++i)
-            svB_scr(vlane_id, thread_id * REG_N + i) = svB_blk(vlane_id, thread_id * REG_N + i);
+            for (int i = 0; i < REG_N; ++i)
+              svB_scr(vlane_id, thread_offset + i) = svB_blk(vlane_id, thread_offset + i);
+          });
       });
-    });
 
     Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m / REG_M), [&](const int &thread_id) {
-      Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
+        auto thread_offset = thread_id * REG_M;
+        Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
-          for (int i = 0; i < REG_M; ++i)
-            svA_scr(vlane_id, thread_id * REG_M + i) = svA_blk(thread_id * REG_M + i, vlane_id);
+            for (int i = 0; i < REG_M; ++i)
+              svA_scr(vlane_id, thread_offset + i) = svA_blk(thread_offset + i, vlane_id);
+          });
       });
-    });
 
     // Wait for A, B to reside in scratch memory
     member.team_barrier();
 
     // Each thread calculates a single dot product in chunks of size blk_k
+#pragma unroll
     for (int k = 1; k < n_blk_k_blocks; ++k) {
       auto k_block_offset = k * blk_k;
 
       // Get this threads next blk_k entries from global memory
       // Each thread has its own copy of prefetch_reg_b. TeamThreadRange runs over all threads in the team.
       Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_n / REG_N), [&](const int &thread_id) {
+          auto thread_offset = thread_id * REG_N;
           Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
 	      for (int i = 0; i < REG_N; ++i)
-		prefetch_reg_b[i] = svB_blk(vlane_id + k_block_offset, thread_id * REG_N + i);
-          });
-      });
+		prefetch_reg_b[i] = svB_blk(vlane_id + k_block_offset, thread_offset + i);
+            });
+        });
 
       // Get this threads next blk_k entries from global memory
       // Each thread has its own copy of prefetch_reg_b. TeamThreadRange runs over all threads in the team.
       Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m / REG_M), [&](const int &thread_id) {
+          auto thread_offset = thread_id * REG_M;
           Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
               for (int i = 0; i < REG_M; ++i)
-                prefetch_reg_a[i] = svA_blk(thread_id * REG_M + i, vlane_id + k_block_offset);
-          });
-      });
+                prefetch_reg_a[i] = svA_blk(thread_offset + i, vlane_id + k_block_offset);
+            });
+        });
 
       // Multiply
       Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m / REG_M), [&](const int &thread_id) {
@@ -1218,71 +1223,75 @@ struct parallel_batched_gemm {
 
       // populate shmem from prefetch registers. Each thread has its own copy of prefetch_reg_a.
       Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_n / REG_N), [&](const int &thread_id) {
-        Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
+          auto thread_offset = thread_id * REG_N;
+          Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
-            for (int i = 0; i < REG_N; ++i) {
-              svB_scr(vlane_id, thread_id * REG_N + i) = prefetch_reg_b[i];
-	    }
+              for (int i = 0; i < REG_N; ++i) {
+                svB_scr(vlane_id, thread_offset + i) = prefetch_reg_b[i];
+              }
+            });
         });
-      });
 
       // populate shmem from prefetch registers. Each thread has its own copy of prefetch_reg_b.
       Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m / REG_M), [&](const int &thread_id) {
-        Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
+          auto thread_offset = thread_id * REG_M;
+          Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
-            for (int i = 0; i < REG_M; ++i)
-              svA_scr(vlane_id, thread_id * REG_M + i) = prefetch_reg_a[i];
+              for (int i = 0; i < REG_M; ++i)
+                svA_scr(vlane_id, thread_offset + i) = prefetch_reg_a[i];
+            });
         });
-      });
 
       // Wait for shmem stores to land before performing next blk_k multiply
       member.team_barrier();
     } // end n_blk_k_blocks loop
 
     // Multiply last blk_k block
-      Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m / REG_M), [&](const int &thread_id) {
-          // Get REG_M rows, svA_scr is svA_blk'
-	  auto svA_rows = Kokkos::subview(svA_scr, Kokkos::ALL(), Kokkos::make_pair(thread_id * REG_M, (thread_id + 1) * REG_M));
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m / REG_M), [&](const int &thread_id) {
+        // Get REG_M rows, svA_scr is svA_blk'
+        auto svA_rows = Kokkos::subview(svA_scr, Kokkos::ALL(), Kokkos::make_pair(thread_id * REG_M, (thread_id + 1) * REG_M));
 
-	  Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n / REG_N), [&](const int &vlane_id) {
-	      auto svB_cols = Kokkos::subview(svB_scr, Kokkos::ALL(), Kokkos::make_pair(vlane_id * REG_N, (vlane_id + 1) * REG_N));
+        Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n / REG_N), [&](const int &vlane_id) {
+            auto svB_cols = Kokkos::subview(svB_scr, Kokkos::ALL(), Kokkos::make_pair(vlane_id * REG_N, (vlane_id + 1) * REG_N));
 
 #pragma unroll
-              for (int k = 0; k < blk_k; ++k) {
+            for (int k = 0; k < blk_k; ++k) {
 #pragma unroll
-                for (int m = 0; m < REG_M; ++m) {
-                  reg_a[m] = svA_rows(k, m);
-                }
+              for (int m = 0; m < REG_M; ++m) {
+                reg_a[m] = svA_rows(k, m);
+              }
 
+#pragma unroll
+              for (int n = 0; n < REG_N; ++n) {
+                reg_b[n] = svB_cols(k, n);
+              }
+
+#pragma unroll
+              for (int m = 0; m < REG_M; ++m) {
 #pragma unroll
                 for (int n = 0; n < REG_N; ++n) {
-                  reg_b[n] = svB_cols(k, n);
-                }
-
-#pragma unroll
-                for (int m = 0; m < REG_M; ++m) {
-#pragma unroll
-                  for (int n = 0; n < REG_N; ++n) {
-                    reg_c[m][n] += reg_a[m] * reg_b[n] * gemm_args_.alpha;
-                  }
+                  reg_c[m][n] += reg_a[m] * reg_b[n] * gemm_args_.alpha;
                 }
               }
-	    });
-	});
-
-    // store results back to global memory
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m / REG_M), [&](const int &thread_id) {
-      Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n / REG_N), [&](const int &vlane_id) {
-#pragma unroll
-          for (int m = 0; m < REG_M; ++m) {
-#pragma unroll
-            for (int n = 0; n < REG_N; ++n) {
-              // Assume that each thread is computing multiple rows and each vector lane is computing multiple columns
-              auto c_val = svC_blk(thread_id * REG_M + m, vlane_id * REG_N + n);
-              svC_blk(thread_id * REG_M + m, vlane_id * REG_N + n) = reg_c[m][n] + c_val * gemm_args_.beta;
             }
-          }
+          });
       });
+
+      // store results back to global memory
+      Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m / REG_M), [&](const int &thread_id) {
+          auto thread_m_offset = thread_id * REG_M;
+          Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n / REG_N), [&](const int &vlane_id) {
+              auto thread_n_offset = vlane_id * REG_N;
+#pragma unroll
+              for (int m = 0; m < REG_M; ++m) {
+#pragma unroll
+                for (int n = 0; n < REG_N; ++n) {
+                  // Assume that each thread is computing multiple rows and each vector lane is computing multiple columns
+                  auto c_val = svC_blk(thread_m_offset + m, thread_n_offset + n);
+                  svC_blk(thread_m_offset + m, thread_n_offset + n) = reg_c[m][n] + c_val * gemm_args_.beta;
+                }
+              }
+            });
     });
   }
 
