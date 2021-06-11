@@ -60,9 +60,16 @@
 #include "KokkosKernels_TestUtils.hpp"
 
 //#define GEMM_PERF_TEST_DEBUG
-#define REG_M 4
-#define REG_N 4
-#define STRIDE 8
+
+////////////////////////////////////////////////////////////////////////////////
+// TODOs:
+// 0. set loop bounds and stride                                                [DONE in functor for multiples of 32]
+// 1. Create a templated function that accepts REG_M and REG_N sizes at compile
+//    time.                                                                     [DONE, functor does this now]
+// 2. Check m and n size before creating functor type. Set reg_m and reg_n
+//    based on m and n size.
+// 3. Handle edge cases for sizes > 1 and < 32.
+////////////////////////////////////////////////////////////////////////////////
 
 #if 0
 // Source: https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#wmma-example
@@ -829,7 +836,9 @@ struct parallel_batched_gemm_range_policy {
 };
 
 template <class MemberType, class TransAType, class TransBType,
-          class BlockingType, class AlgoMode = void>
+          class BlockingType,
+          int REG_M, int REG_N, int STRIDE_M, int STRIDE_N,
+          class AlgoMode = void>
 struct parallel_batched_gemm {
   gemm_args_t gemm_args_;
   size_t divisor_, n_sub_blocks, n_blk_k_blocks;
@@ -1141,7 +1150,7 @@ struct parallel_batched_gemm {
         auto thread_offset = thread_id;
         Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
-            for (int i = 0; i < REG_N * STRIDE; i+= STRIDE)
+            for (int i = 0; i < REG_N * STRIDE_N; i+= STRIDE_N)
               svB_scr(vlane_id, thread_offset + i) = svB_blk(vlane_id, thread_offset + i);
           });
       });
@@ -1150,7 +1159,7 @@ struct parallel_batched_gemm {
         auto thread_offset = thread_id;
         Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
-            for (int i = 0; i < REG_M * STRIDE; i+= STRIDE)
+            for (int i = 0; i < REG_M * STRIDE_M; i+= STRIDE_M)
               svA_scr(vlane_id, thread_offset + i) = svA_blk(thread_offset + i, vlane_id);
           });
       });
@@ -1170,7 +1179,7 @@ struct parallel_batched_gemm {
           Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
 	      for (int i = 0; i < REG_N; ++i)
-		prefetch_reg_b[i] = svB_blk(vlane_id + k_block_offset, thread_offset + i * STRIDE);
+		prefetch_reg_b[i] = svB_blk(vlane_id + k_block_offset, thread_offset + i * STRIDE_N);
             });
         });
 
@@ -1181,7 +1190,7 @@ struct parallel_batched_gemm {
           Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
               for (int i = 0; i < REG_M; ++i)
-                prefetch_reg_a[i] = svA_blk(thread_offset + i * STRIDE, vlane_id + k_block_offset);
+                prefetch_reg_a[i] = svA_blk(thread_offset + i * STRIDE_M, vlane_id + k_block_offset);
             });
         });
 
@@ -1197,12 +1206,12 @@ struct parallel_batched_gemm {
               for (int k = 0; k < blk_k; ++k) {
 #pragma unroll
                 for (int m = 0; m < REG_M; ++m) {
-                  reg_a[m] = svA_scr(k, thread_id + m * STRIDE);
+                  reg_a[m] = svA_scr(k, thread_id + m * STRIDE_M);
                 }
 
 #pragma unroll
                 for (int n = 0; n < REG_N; ++n) {
-                  reg_b[n] = svB_scr(k, vlane_id + n * STRIDE);
+                  reg_b[n] = svB_scr(k, vlane_id + n * STRIDE_N);
                 }
 
 #pragma unroll
@@ -1227,7 +1236,7 @@ struct parallel_batched_gemm {
           Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
               for (int i = 0; i < REG_N; ++i) {
-                svB_scr(vlane_id, thread_offset + i * STRIDE) = prefetch_reg_b[i];
+                svB_scr(vlane_id, thread_offset + i * STRIDE_N) = prefetch_reg_b[i];
               }
             });
         });
@@ -1238,7 +1247,7 @@ struct parallel_batched_gemm {
           Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
               for (int i = 0; i < REG_M; ++i)
-                svA_scr(vlane_id, thread_offset + i * STRIDE) = prefetch_reg_a[i];
+                svA_scr(vlane_id, thread_offset + i * STRIDE_M) = prefetch_reg_a[i];
             });
         });
 
@@ -1258,12 +1267,12 @@ struct parallel_batched_gemm {
             for (int k = 0; k < blk_k; ++k) {
 #pragma unroll
               for (int m = 0; m < REG_M; ++m) {
-                reg_a[m] = svA_scr(k, thread_id + m * STRIDE);
+                reg_a[m] = svA_scr(k, thread_id + m * STRIDE_M);
               }
 
 #pragma unroll
               for (int n = 0; n < REG_N; ++n) {
-                reg_b[n] = svB_scr(k, vlane_id + n * STRIDE);
+                reg_b[n] = svB_scr(k, vlane_id + n * STRIDE_N);
               }
 
 #pragma unroll
@@ -1287,8 +1296,8 @@ struct parallel_batched_gemm {
 #pragma unroll
               for (int n = 0; n < REG_N; ++n) {
                 // Assume that each thread is computing multiple rows and each vector lane is computing multiple columns
-                auto c_val = svC_blk(thread_m_offset + m * STRIDE, thread_n_offset + n * STRIDE);
-                svC_blk(thread_m_offset + m * STRIDE, thread_n_offset + n * STRIDE) = reg_c[m][n] + c_val * gemm_args_.beta;
+                auto c_val = svC_blk(thread_m_offset + m * STRIDE_M, thread_n_offset + n * STRIDE_N);
+                svC_blk(thread_m_offset + m * STRIDE_M, thread_n_offset + n * STRIDE_N) = reg_c[m][n] + c_val * gemm_args_.beta;
               }
             }
           });
@@ -1566,9 +1575,6 @@ void __do_gemm_parallel_batched_template(options_t options,
   using execution_space = typename device_type::execution_space;
   using policy_type     = Kokkos::TeamPolicy<AlgoTag, execution_space>;
   using member_type     = typename policy_type::member_type;
-  using functor_type =
-      parallel_batched_gemm<member_type, TransAType, TransBType, BlockingType,
-                            algo_mode>;
 
   uint32_t warm_up_n = options.warm_up_n;
   uint32_t n         = options.n;
@@ -1613,12 +1619,27 @@ void __do_gemm_parallel_batched_template(options_t options,
 
   STATUS;
 
-  functor_type parallel_batched_gemm_functor(gemm_args, options.blas_args.batch_size_last_dim, divisor, options.tile.m, options.tile.n, options.tile.k);
+  constexpr int reg_m = 4, reg_n = 4;
+
+  constexpr int tile_n    = 32;
+  constexpr int stride_n  = tile_n / reg_n;
+  constexpr int tile_m    = stride_n * reg_m;
+  constexpr int stride_m  = tile_m / reg_m;
+  constexpr int tile_k    = stride_m;
+
+  using functor_type =
+      parallel_batched_gemm<member_type, TransAType, TransBType, BlockingType,
+                            reg_m, reg_n, stride_m, stride_n,
+                            algo_mode>;
+
+  functor_type parallel_batched_gemm_functor(gemm_args, options.blas_args.batch_size_last_dim, divisor, tile_m, tile_n, tile_k);
+
+
 
   // For pre-fetch version:
   size_t shmem_size =
-      view_type_2d_scratch::shmem_size(options.tile.m, options.tile.k) +
-      view_type_2d_scratch::shmem_size(options.tile.k, options.tile.n);
+      view_type_2d_scratch::shmem_size(tile_m, tile_k) +
+      view_type_2d_scratch::shmem_size(tile_k, tile_n);
 
   if (std::is_same<AlgoTag, TeamShmemTag>::value ||
       std::is_same<AlgoTag, TeamShmemBatchDim3Tag>::value) {
@@ -1634,8 +1655,8 @@ void __do_gemm_parallel_batched_template(options_t options,
   if (std::is_same<AlgoTag, TeamTag>::value ||
       std::is_same<AlgoTag, TeamBatchDim3Tag>::value) {
     league_size *= parallel_batched_gemm_functor.n_sub_blocks;
-    team_size = options.tile.m / REG_M;
-    vector_len = options.tile.n / REG_N;
+    team_size = tile_m / reg_m;
+    vector_len = tile_n / reg_n;
   }
 
   if (options.blas_args.use_auto) {
