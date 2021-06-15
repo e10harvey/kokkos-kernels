@@ -1569,7 +1569,7 @@ void __do_gemm_parallel_batched_template_range_policy(options_t options,
 }
 
 template <class TransAType, class TransBType, class BlockingType, class AlgoTag,
-          class device_type, class algo_mode = void>
+          class device_type, int reg_n = 1, int reg_m = 1, int tile_n = 1, class algo_mode = void>
 void __do_gemm_parallel_batched_template(options_t options,
                                          gemm_args_t gemm_args) {
   using execution_space = typename device_type::execution_space;
@@ -1619,9 +1619,6 @@ void __do_gemm_parallel_batched_template(options_t options,
 
   STATUS;
 
-  constexpr int reg_m = 4, reg_n = 4;
-
-  constexpr int tile_n    = 32;
   constexpr int stride_n  = tile_n / reg_n;
   constexpr int tile_m    = stride_n * reg_m;
   constexpr int stride_m  = tile_m / reg_m;
@@ -1708,23 +1705,29 @@ void __do_gemm_parallel_batched(options_t options, gemm_args_t gemm_args) {
   STATUS;
 
   if (a == 'N' && b == 'N') {
-    __do_gemm_parallel_batched_template<N, N, blocking_type, algo_tag,
-                                        device_type, algo_mode>(options,
-                                                                gemm_args);
+    if (gemm_args.dims.c.n >= 32 && gemm_args.dims.c.m >= 32) {
+      __do_gemm_parallel_batched_template<N, N, blocking_type, algo_tag,
+                                          device_type, 4, 4, 32, algo_mode>(options,
+                                                                            gemm_args);
+    } else {
+      __do_gemm_parallel_batched_template<N, N, blocking_type, algo_tag,
+                                          device_type, 1, 1, 1, algo_mode>(options,
+                                                                           gemm_args);
+    }
   } else if (a == 'N' && b == 'T') {
     __do_gemm_parallel_batched_template<N, T, blocking_type, algo_tag,
-                                        device_type, algo_mode>(options,
+                                        device_type,1,1,1, algo_mode>(options,
                                                                 gemm_args);
     //} else if (a == 'N' && b == 'C') {
     //  __do_gemm_parallel_batched_template<N, C, blocking_type, algo_tag,
     //  device_type>(options, gemm_args);
   } else if (a == 'T' && b == 'N') {
     __do_gemm_parallel_batched_template<T, N, blocking_type, algo_tag,
-                                        device_type, algo_mode>(options,
+                                        device_type, 1,1,1,algo_mode>(options,
                                                                 gemm_args);
   } else if (a == 'T' && b == 'T') {
     __do_gemm_parallel_batched_template<T, T, blocking_type, algo_tag,
-                                        device_type, algo_mode>(options,
+                                        device_type, 1,1,1,algo_mode>(options,
                                                                 gemm_args);
     //} else if (a == 'T' && b == 'C') {
     //  __do_gemm_parallel_batched_template<T, C, blocking_type, algo_tag,
