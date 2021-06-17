@@ -68,7 +68,9 @@
 //    time.                                                                     [DONE, functor does this now]
 // 2. Check m and n size before creating functor type. Set reg_m and reg_n
 //    based on m and n size.
-// 3. Handle edge cases for sizes > 1 and < 32.
+// 3. Handle partial blk_k edge case.                                           [DONE, opterator does this now]
+// 4. Handle edge case: sizes in [20, 31]
+// 5. Handle edge case: sizes > 32 which are not multiples of 32
 ////////////////////////////////////////////////////////////////////////////////
 
 #if 0
@@ -842,18 +844,22 @@ template <class MemberType, class TransAType, class TransBType,
 struct parallel_batched_gemm {
   gemm_args_t gemm_args_;
   size_t divisor_, n_sub_blocks, n_blk_k_blocks;
-  unsigned tiles_per_row, tiles_per_col, blk_m, blk_n, blk_k;
+  unsigned tiles_per_row, tiles_per_col, trailing_rows, trailing_cols, blk_m, blk_n, blk_k;
 
   parallel_batched_gemm(gemm_args_t gemm_args, bool batch_size_last_dim, size_t divisor = 1, unsigned tile_m = 1, unsigned tile_n = 1, unsigned tile_k = 1)
     : gemm_args_(gemm_args), divisor_(divisor), blk_m(tile_m), blk_n(tile_n), blk_k(tile_k) {
     if (batch_size_last_dim) {
-      tiles_per_row = (unsigned)gemm_args.C.extent(0) / blk_m;
-      tiles_per_col = (unsigned)gemm_args.C.extent(1) / blk_n;
+      tiles_per_row = (unsigned)gemm_args.C.extent(0) / blk_m ;
+      tiles_per_col = (unsigned)gemm_args.C.extent(1) / blk_n ;
       n_blk_k_blocks = (unsigned)gemm_args.A.extent(1) / blk_k;
+      trailing_rows = gemm_args.C.extent(0) - tiles_per_row * blk_m; // TODO: don't underflow here for when the tiles exceeds the matrix
+      trailing_cols = gemm_args.C.extent(1) - tiles_per_col * blk_n;
     } else {
-      tiles_per_row = (unsigned)gemm_args.C.extent(1) / blk_m;
-      tiles_per_col = (unsigned)gemm_args.C.extent(2) / blk_n;
+      tiles_per_row = (unsigned)gemm_args.C.extent(1) / blk_m ;
+      tiles_per_col = (unsigned)gemm_args.C.extent(2) / blk_n ;
       n_blk_k_blocks = (unsigned)gemm_args.A.extent(2) / blk_k;
+      trailing_rows = gemm_args.C.extent(1) - tiles_per_row * blk_m;
+      trailing_cols = gemm_args.C.extent(2) - tiles_per_col * blk_n;
     }
     n_sub_blocks = tiles_per_row * tiles_per_col;
   }
@@ -1217,7 +1223,7 @@ struct parallel_batched_gemm {
 
       // Wait for:
       //   1. prefetch_regs to be populated
-      //   2. for shmem to no longer be read from
+      //   2. shmem to no longer be read from
       member.team_barrier();
 
       // populate shmem from prefetch registers. Each thread has its own copy of prefetch_reg_a.
@@ -1280,11 +1286,13 @@ struct parallel_batched_gemm {
             auto thread_n_offset = vlane_id;
 #pragma unroll
             for (int m = 0; m < REG_M; ++m) {
+              auto cm = thread_m_offset + m * STRIDE_M;
 #pragma unroll
               for (int n = 0; n < REG_N; ++n) {
-                // Assume that each thread is computing multiple rows and each vector lane is computing multiple columns
-                auto c_val = svC_blk(thread_m_offset + m * STRIDE_M, thread_n_offset + n * STRIDE_N);
-                svC_blk(thread_m_offset + m * STRIDE_M, thread_n_offset + n * STRIDE_N) = reg_c[m][n] + c_val * gemm_args_.beta;
+                auto cn = thread_n_offset + n * STRIDE_N;
+                //if (cm < svC_blk.extent(0) && cn < svC_blk.extent(1)) {
+                svC_blk(cm, cn) = reg_c[m][n] + svC_blk(cm, cn) * gemm_args_.beta;
+                //}
               }
             }
           });
@@ -1692,7 +1700,7 @@ void __do_gemm_parallel_batched(options_t options, gemm_args_t gemm_args) {
   STATUS;
 
   if (a == 'N' && b == 'N') {
-    if (gemm_args.dims.c.n >= 32 && gemm_args.dims.c.m >= 32) {
+    if (gemm_args.dims.c.n >= 31 && gemm_args.dims.c.m >= 31) {
       __do_gemm_parallel_batched_template<N, N, blocking_type, algo_tag,
                                           device_type, 4, 4, 32, algo_mode>(options,
                                                                             gemm_args);
