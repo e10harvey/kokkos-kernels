@@ -1127,30 +1127,26 @@ struct parallel_batched_gemm {
     unsigned start_m = (local_team_idx / tiles_per_col) * blk_m;
     unsigned start_n = (local_team_idx % tiles_per_col) * blk_n;
 
-    auto svA_blk = Kokkos::subview(svA, Kokkos::make_pair(start_m, start_m + blk_m), Kokkos::ALL()); // blk_m x k
-    auto svB_blk = Kokkos::subview(svB, Kokkos::ALL(), Kokkos::make_pair(start_n, start_n + blk_n)); // k x blk_n
-    auto svC_blk = Kokkos::subview(svC, Kokkos::make_pair(start_m, start_m + blk_m), Kokkos::make_pair(start_n, start_n + blk_n));      // blk_m x blk_n
-
     // intentionally allocate svA_scr transposed, its faster to perform transpose during shmem population
     view_type_2d_scratch svA_scr(member.team_scratch(0), blk_k, blk_m);
     view_type_2d_scratch svB_scr(member.team_scratch(0), blk_k, blk_n);
 
     // Here, we populate scratch memory with one or more blk_k for every thread of the team!
     Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_n / REG_N), [&](const int &thread_id) {
-        auto thread_offset = thread_id;
+        auto thread_offset = thread_id + start_n;
         Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
             for (int i = 0; i < REG_N * STRIDE_N; i+= STRIDE_N)
-              svB_scr(vlane_id, thread_offset + i) = svB_blk(vlane_id, thread_offset + i);
+              svB_scr(vlane_id, thread_id + i) = svB(vlane_id, thread_offset + i);
           });
       });
 
     Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m / REG_M), [&](const int &thread_id) {
-        auto thread_offset = thread_id;
+        auto thread_offset = thread_id + start_m;
         Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
             for (int i = 0; i < REG_M * STRIDE_M; i+= STRIDE_M)
-              svA_scr(vlane_id, thread_offset + i) = svA_blk(thread_offset + i, vlane_id);
+              svA_scr(vlane_id, thread_id + i) = svA(thread_offset + i, vlane_id);
           });
       });
 
@@ -1170,22 +1166,22 @@ struct parallel_batched_gemm {
       // Each thread has its own copy of prefetch_reg_b. TeamThreadRange runs over all threads in the team.
       // TODO: only fetch partial_blk_k since the last fetch is out of bounds?
       Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_n / REG_N), [&](const int &thread_id) {
-          auto thread_offset = thread_id;
+          auto thread_offset = thread_id + start_n;
           Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
               for (int i = 0; i < REG_N; ++i)
-                prefetch_reg_b[i] = svB_blk(vlane_id + k_block_offset, thread_offset + i * STRIDE_N);
+                prefetch_reg_b[i] = svB(vlane_id + k_block_offset, thread_offset + i * STRIDE_N);
             });
         });
 
       // Get this threads next blk_k entries from global memory
       // Each thread has its own copy of prefetch_reg_b. TeamThreadRange runs over all threads in the team.
       Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m / REG_M), [&](const int &thread_id) {
-          auto thread_offset = thread_id;
+          auto thread_offset = thread_id + start_m;
           Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
               for (int i = 0; i < REG_M; ++i)
-                prefetch_reg_a[i] = svA_blk(thread_offset + i * STRIDE_M, vlane_id + k_block_offset);
+                prefetch_reg_a[i] = svA(thread_offset + i * STRIDE_M, vlane_id + k_block_offset);
             });
         });
 
@@ -1275,16 +1271,16 @@ struct parallel_batched_gemm {
 
     // store results back to global memory
     Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m / REG_M), [&](const int &thread_id) {
-        auto thread_m_offset = thread_id;
+        auto thread_m_offset = thread_id + start_m;
         Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n / REG_N), [&](const int &vlane_id) {
-            auto thread_n_offset = vlane_id;
+            auto thread_n_offset = vlane_id + start_n;
 #pragma unroll
             for (int m = 0; m < REG_M; ++m) {
               int cm = thread_m_offset + m * STRIDE_M;
 #pragma unroll
               for (int n = 0; n < REG_N; ++n) {
                 int cn = thread_n_offset + n * STRIDE_N;
-                svC_blk(cm, cn) = reg_c[m][n] + svC_blk(cm, cn) * gemm_args_.beta;
+                svC(cm, cn) = reg_c[m][n] + svC(cm, cn) * gemm_args_.beta;
               }
             }
           });
