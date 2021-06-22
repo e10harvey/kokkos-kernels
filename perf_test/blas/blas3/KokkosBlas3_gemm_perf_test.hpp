@@ -1280,11 +1280,11 @@ struct parallel_batched_gemm {
             auto thread_n_offset = vlane_id;
 #pragma unroll
             for (int m = 0; m < REG_M; ++m) {
+              int cm = thread_m_offset + m * STRIDE_M;
 #pragma unroll
               for (int n = 0; n < REG_N; ++n) {
-                // Assume that each thread is computing multiple rows and each vector lane is computing multiple columns
-                auto c_val = svC_blk(thread_m_offset + m * STRIDE_M, thread_n_offset + n * STRIDE_N);
-                svC_blk(thread_m_offset + m * STRIDE_M, thread_n_offset + n * STRIDE_N) = reg_c[m][n] + c_val * gemm_args_.beta;
+                int cn = thread_n_offset + n * STRIDE_N;
+                svC_blk(cm, cn) = reg_c[m][n] + svC_blk(cm, cn) * gemm_args_.beta;
               }
             }
           });
