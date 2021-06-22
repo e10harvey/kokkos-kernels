@@ -61,6 +61,7 @@
 
 //#define GEMM_PERF_TEST_DEBUG
 #define FETCH(ADDR, I, J, MAX_I, MAX_J) (((I) >= (MAX_I) || (J) >= (MAX_J)) ? 0 : (ADDR((I), (J))))
+//#define FETCH(ADDR, I, J, MAX_I, MAX_J) (((I) < (MAX_I) && (J) < (MAX_J)) ? (ADDR((I), (J))) : 0)
 
 ////////////////////////////////////////////////////////////////////////////////
 // TODOs:
@@ -1150,7 +1151,7 @@ struct parallel_batched_gemm {
         Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
             for (int i = 0; i < REG_N * STRIDE_N; i+= STRIDE_N)
-              svB_scr(vlane_id, thread_offset + i) = FETCH(svB, vlane_id, thread_offset + i, svB.extent_int(0), svB.extent_int(1));
+              svB_scr(vlane_id, thread_id + i) = FETCH(svB, vlane_id, thread_offset + i, svB.extent_int(0), svB.extent_int(1));
           });
       });
 
@@ -1159,7 +1160,7 @@ struct parallel_batched_gemm {
         Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
             for (int i = 0; i < REG_M * STRIDE_M; i+= STRIDE_M)
-              svA_scr(vlane_id, thread_offset + i) = FETCH(svA, thread_offset + i, vlane_id, svA.extent_int(0), svA.extent_int(1));
+              svA_scr(vlane_id, thread_id + i) = FETCH(svA, thread_offset + i, vlane_id, svA.extent_int(0), svA.extent_int(1));
           });
       });
 
@@ -1231,22 +1232,20 @@ struct parallel_batched_gemm {
 
       // populate shmem from prefetch registers. Each thread has its own copy of prefetch_reg_a.
       Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_n / REG_N), [&](const int &thread_id) {
-          auto thread_offset = thread_id;
           Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
               for (int i = 0; i < REG_N; ++i) {
-                svB_scr(vlane_id, thread_offset + i * STRIDE_N) = prefetch_reg_b[i];
+                svB_scr(vlane_id, thread_id + i * STRIDE_N) = prefetch_reg_b[i];
               }
             });
         });
 
       // populate shmem from prefetch registers. Each thread has its own copy of prefetch_reg_b.
       Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m / REG_M), [&](const int &thread_id) {
-          auto thread_offset = thread_id;
           Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
               for (int i = 0; i < REG_M; ++i)
-                svA_scr(vlane_id, thread_offset + i * STRIDE_M) = prefetch_reg_a[i];
+                svA_scr(vlane_id, thread_id + i * STRIDE_M) = prefetch_reg_a[i];
             });
         });
 
