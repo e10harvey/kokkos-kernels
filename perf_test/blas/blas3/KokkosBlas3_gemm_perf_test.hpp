@@ -68,7 +68,11 @@
 //    time.                                                                     [DONE, functor does this now]
 // 2. Check m and n size before creating functor type. Set reg_m and reg_n
 //    based on m and n size.
-// 3. Handle edge cases for sizes > 1 and < 32.
+// 3. blk_k edge case                                                           [DONE]
+// 4. extended tile edge case                                                   [In Progress]
+//    i.  Bounds checking - performance regression                              [Not Working]
+//    ii. Using scratch memory to get results out of registers                  [Not Working]
+// 5. partial tile edge case
 ////////////////////////////////////////////////////////////////////////////////
 
 #if 0
@@ -847,13 +851,13 @@ struct parallel_batched_gemm {
   parallel_batched_gemm(gemm_args_t gemm_args, bool batch_size_last_dim, size_t divisor = 1, unsigned tile_m = 1, unsigned tile_n = 1, unsigned tile_k = 1)
     : gemm_args_(gemm_args), divisor_(divisor), blk_m(tile_m), blk_n(tile_n), blk_k(tile_k) {
     if (batch_size_last_dim) {
-      tiles_per_row = (unsigned)gemm_args.C.extent(0) / blk_m;
-      tiles_per_col = (unsigned)gemm_args.C.extent(1) / blk_n;
-      n_blk_k_blocks = (unsigned)gemm_args.A.extent(1) / blk_k;
+      tiles_per_row = (unsigned)gemm_args.C.extent(0) / blk_m + !!(gemm_args.C.extent(0) % blk_m);
+      tiles_per_col = (unsigned)gemm_args.C.extent(1) / blk_n + !!(gemm_args.C.extent(1) % blk_n);
+      n_blk_k_blocks = (unsigned)gemm_args.A.extent(1) / blk_k + !!(gemm_args.A.extent(1) % blk_k);
     } else {
-      tiles_per_row = (unsigned)gemm_args.C.extent(1) / blk_m;
-      tiles_per_col = (unsigned)gemm_args.C.extent(2) / blk_n;
-      n_blk_k_blocks = (unsigned)gemm_args.A.extent(2) / blk_k;
+      tiles_per_row = (unsigned)gemm_args.C.extent(1) / blk_m + !!(gemm_args.C.extent(1) % blk_m);
+      tiles_per_col = (unsigned)gemm_args.C.extent(2) / blk_n + !!(gemm_args.C.extent(2) % blk_n);
+      n_blk_k_blocks = (unsigned)gemm_args.A.extent(2) / blk_k + !!(gemm_args.A.extent(2) % blk_k);
     }
     n_sub_blocks = tiles_per_row * tiles_per_col;
   }
@@ -1114,14 +1118,16 @@ struct parallel_batched_gemm {
 
   KOKKOS_INLINE_FUNCTION
   void operator()(const TeamTag &, const MemberType &member) const {
-    default_scalar prefetch_reg_a[REG_M], prefetch_reg_b[REG_N];
-    default_scalar reg_a[REG_M], reg_b[REG_N], reg_c[REG_M][REG_N] = { {0} };
-
+    default_scalar reg_c[REG_M][REG_N] = { {0} };
     unsigned batch_idx = member.league_rank() / n_sub_blocks;
 
     auto svA = Kokkos::subview(gemm_args_.A, batch_idx, Kokkos::ALL(), Kokkos::ALL());
     auto svB = Kokkos::subview(gemm_args_.B, batch_idx, Kokkos::ALL(), Kokkos::ALL());
     auto svC = Kokkos::subview(gemm_args_.C, batch_idx, Kokkos::ALL(), Kokkos::ALL());
+
+    {
+    default_scalar prefetch_reg_a[REG_M], prefetch_reg_b[REG_N];
+    default_scalar reg_a[REG_M], reg_b[REG_N];
 
     unsigned local_team_idx = member.league_rank() % n_sub_blocks;
     unsigned start_m = (local_team_idx / tiles_per_col) * blk_m;
@@ -1268,6 +1274,10 @@ struct parallel_batched_gemm {
             }
           });
       });
+    } // release register and shmem allocations
+
+    shmem_size = max(svC_dims, shmem_size); // blk_k x blk_m + blk_k x blk_n
+    view_type_2d_scratch svC_scr(member.team_scratch(0), blk_m, blk_n);
 
     // store results back to global memory
     Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m / REG_M), [&](const int &thread_id) {
@@ -1280,9 +1290,18 @@ struct parallel_batched_gemm {
 #pragma unroll
               for (int n = 0; n < REG_N; ++n) {
                 int cn = thread_n_offset + n * STRIDE_N;
-                svC(cm, cn) = reg_c[m][n] + svC(cm, cn) * gemm_args_.beta;
+                svC_scr(cm, cn) = reg_c[m][n] + svC(cm, cn) * gemm_args_.beta;
               }
             }
+          });
+      });
+
+    member.team_barrier();
+
+    // store results back to global memory
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, svC.extent(0)), [&](const int &thread_id) {
+        Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, svC.extent(1)), [&](const int &vlane_id) {
+            svC(thread_id, vlane_id) = svC_scr(thread_id, vlane_id);
           });
       });
   }
