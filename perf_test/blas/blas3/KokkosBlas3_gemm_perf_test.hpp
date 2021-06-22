@@ -60,7 +60,6 @@
 #include "KokkosKernels_TestUtils.hpp"
 
 //#define GEMM_PERF_TEST_DEBUG
-#define FETCH(ADDR, I, J, MAX_I, MAX_J) (((I) >= (MAX_I) || (J) >= (MAX_J)) ? 0 : (ADDR((I), (J))))
 
 ////////////////////////////////////////////////////////////////////////////////
 // TODOs:
@@ -845,22 +844,22 @@ template <class MemberType, class TransAType, class TransBType,
 struct parallel_batched_gemm {
   gemm_args_t gemm_args_;
   size_t divisor_, n_sub_blocks, n_blk_k_blocks;
-  unsigned tiles_per_row, tiles_per_col, /*trailing_rows, trailing_cols,*/ blk_m, blk_n, blk_k;
+  unsigned tiles_per_row, tiles_per_col, trailing_rows, trailing_cols, blk_m, blk_n, blk_k;
 
   parallel_batched_gemm(gemm_args_t gemm_args, bool batch_size_last_dim, size_t divisor = 1, unsigned tile_m = 1, unsigned tile_n = 1, unsigned tile_k = 1)
     : gemm_args_(gemm_args), divisor_(divisor), blk_m(tile_m), blk_n(tile_n), blk_k(tile_k) {
     if (batch_size_last_dim) {
-      tiles_per_row = (unsigned)gemm_args.C.extent(0) / blk_m + !!(gemm_args.C.extent(0) % blk_m);
-      tiles_per_col = (unsigned)gemm_args.C.extent(1) / blk_n + !!(gemm_args.C.extent(1) % blk_n);
-      n_blk_k_blocks = (unsigned)gemm_args.A.extent(1) / blk_k + !!(gemm_args.A.extent(1) % blk_k);
-      // trailing_rows = gemm_args.C.extent(0) - tiles_per_row * blk_m;
-      // trailing_cols = gemm_args.C.extent(1) - tiles_per_col * blk_n;
+      tiles_per_row = (unsigned)gemm_args.C.extent(0) / blk_m ;
+      tiles_per_col = (unsigned)gemm_args.C.extent(1) / blk_n ;
+      n_blk_k_blocks = (unsigned)gemm_args.A.extent(1) / blk_k;
+      trailing_rows = gemm_args.C.extent(0) - tiles_per_row * blk_m; // TODO: don't underflow here for when the tiles exceeds the matrix
+      trailing_cols = gemm_args.C.extent(1) - tiles_per_col * blk_n;
     } else {
-      tiles_per_row = (unsigned)gemm_args.C.extent(1) / blk_m + !!(gemm_args.C.extent(1) % blk_m);
-      tiles_per_col = (unsigned)gemm_args.C.extent(2) / blk_n + !!(gemm_args.C.extent(2) % blk_n);
-      n_blk_k_blocks = (unsigned)gemm_args.A.extent(2) / blk_k + !!(gemm_args.A.extent(2) % blk_k);
-      // trailing_rows = gemm_args.C.extent(1) - tiles_per_row * blk_m;
-      // trailing_cols = gemm_args.C.extent(2) - tiles_per_col * blk_n;
+      tiles_per_row = (unsigned)gemm_args.C.extent(1) / blk_m ;
+      tiles_per_col = (unsigned)gemm_args.C.extent(2) / blk_n ;
+      n_blk_k_blocks = (unsigned)gemm_args.A.extent(2) / blk_k;
+      trailing_rows = gemm_args.C.extent(1) - tiles_per_row * blk_m;
+      trailing_cols = gemm_args.C.extent(2) - tiles_per_col * blk_n;
     }
     n_sub_blocks = tiles_per_row * tiles_per_col;
   }
@@ -1148,7 +1147,7 @@ struct parallel_batched_gemm {
         Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
             for (int i = 0; i < REG_N * STRIDE_N; i+= STRIDE_N)
-              svB_scr(vlane_id, thread_offset + i) = FETCH(svB_blk, vlane_id, thread_offset + i, svB_blk.extent_int(0), svB_blk.extent_int(1));
+              svB_scr(vlane_id, thread_offset + i) = svB_blk(vlane_id, thread_offset + i);
           });
       });
 
@@ -1157,7 +1156,7 @@ struct parallel_batched_gemm {
         Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
             for (int i = 0; i < REG_M * STRIDE_M; i+= STRIDE_M)
-              svA_scr(vlane_id, thread_offset + i) = FETCH(svA_blk, thread_offset + i, vlane_id, svA_blk.extent_int(0), svA_blk.extent_int(1));
+              svA_scr(vlane_id, thread_offset + i) = svA_blk(thread_offset + i, vlane_id);
           });
       });
 
@@ -1181,7 +1180,7 @@ struct parallel_batched_gemm {
           Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
               for (int i = 0; i < REG_N; ++i)
-                prefetch_reg_b[i] = FETCH(svB_blk, vlane_id + k_block_offset, thread_offset + i * STRIDE_N, svB_blk.extent_int(0), svB_blk.extent_int(1));
+                prefetch_reg_b[i] = svB_blk(vlane_id + k_block_offset, thread_offset + i * STRIDE_N);
             });
         });
 
@@ -1192,7 +1191,7 @@ struct parallel_batched_gemm {
           Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
               for (int i = 0; i < REG_M; ++i)
-                prefetch_reg_a[i] = FETCH(svA_blk, thread_offset + i * STRIDE_M, vlane_id + k_block_offset, svA_blk.extent_int(0), svA_blk.extent_int(1));
+                prefetch_reg_a[i] = svA_blk(thread_offset + i * STRIDE_M, vlane_id + k_block_offset);
             });
         });
 
@@ -1288,14 +1287,12 @@ struct parallel_batched_gemm {
 #pragma unroll
             for (int m = 0; m < REG_M; ++m) {
               auto cm = thread_m_offset + m * STRIDE_M;
-              // if (cm >= svC_blk.extent_int(0))
-              //   continue;
 #pragma unroll
               for (int n = 0; n < REG_N; ++n) {
                 auto cn = thread_n_offset + n * STRIDE_N;
-                if (cm < svC_blk.extent_int(0) && cn < svC_blk.extent_int(1)) {
-                  svC_blk(cm, cn) = reg_c[m][n] + svC_blk(cm, cn) * gemm_args_.beta;
-                }
+                //if (cm < svC_blk.extent(0) && cn < svC_blk.extent(1)) {
+                svC_blk(cm, cn) = reg_c[m][n] + svC_blk(cm, cn) * gemm_args_.beta;
+                //}
               }
             }
           });
