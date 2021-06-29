@@ -390,6 +390,14 @@ static void __print_gemm_perf_test_options(options_t options) {
   return;
 }
 
+template<class view_type>
+KOKKOS_INLINE_FUNCTION
+default_scalar access_view_bounds_check(view_type v, int m, int n) {
+  if (m < v.extent_int(0) && n < v.extent_int(1))
+    return v(m, n);
+  return (default_scalar) 0.0F;
+}
+
 /*************************** Internal templated fns **************************/
 template <class scalar_type, class vta, class vtb, class device_type>
 void __do_gemm_serial_blas(options_t options, gemm_args_t gemm_args) {
@@ -1123,6 +1131,7 @@ struct parallel_batched_gemm {
     auto svB = Kokkos::subview(gemm_args_.B, batch_idx, Kokkos::ALL(), Kokkos::ALL());
     auto svC = Kokkos::subview(gemm_args_.C, batch_idx, Kokkos::ALL(), Kokkos::ALL());
 
+
     unsigned local_team_idx = member.league_rank() % n_sub_blocks;
     unsigned start_m = (local_team_idx / tiles_per_col) * blk_m;
     unsigned start_n = (local_team_idx % tiles_per_col) * blk_n;
@@ -1137,7 +1146,7 @@ struct parallel_batched_gemm {
         Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
             for (int i = 0; i < REG_N * STRIDE_N; i+= STRIDE_N)
-              svB_scr(vlane_id, thread_id + i) = svB(vlane_id, thread_offset + i);
+              svB_scr(vlane_id, thread_id + i) = access_view_bounds_check(svB, vlane_id, thread_offset + i);
           });
       });
 
@@ -1146,7 +1155,7 @@ struct parallel_batched_gemm {
         Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
             for (int i = 0; i < REG_M * STRIDE_M; i+= STRIDE_M)
-              svA_scr(vlane_id, thread_id + i) = svA(thread_offset + i, vlane_id);
+              svA_scr(vlane_id, thread_id + i) = access_view_bounds_check(svA, thread_offset + i, vlane_id);
           });
       });
 
@@ -1170,7 +1179,7 @@ struct parallel_batched_gemm {
           Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
               for (int i = 0; i < REG_N; ++i)
-                prefetch_reg_b[i] = svB(vlane_id + k_block_offset, thread_offset + i * STRIDE_N);
+                prefetch_reg_b[i] = access_view_bounds_check(svB, vlane_id + k_block_offset, thread_offset + i * STRIDE_N);
             });
         });
 
@@ -1181,7 +1190,7 @@ struct parallel_batched_gemm {
           Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
 #pragma unroll
               for (int i = 0; i < REG_M; ++i)
-                prefetch_reg_a[i] = svA(thread_offset + i * STRIDE_M, vlane_id + k_block_offset);
+                prefetch_reg_a[i] = access_view_bounds_check(svA, thread_offset + i * STRIDE_M, vlane_id + k_block_offset);
             });
         });
 
@@ -1280,7 +1289,8 @@ struct parallel_batched_gemm {
 #pragma unroll
               for (int n = 0; n < REG_N; ++n) {
                 int cn = thread_n_offset + n * STRIDE_N;
-                svC(cm, cn) = reg_c[m][n] + svC(cm, cn) * gemm_args_.beta;
+                if (cn < svC.extent_int(1) && cm < svC.extent_int(0))
+                  svC(cm, cn) = reg_c[m][n] + svC(cm, cn) * gemm_args_.beta;
               }
             }
           });
