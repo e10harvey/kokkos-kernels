@@ -66,9 +66,11 @@
 // 0. set loop bounds and stride                                                [DONE in functor for multiples of 32]
 // 1. Create a templated function that accepts REG_M and REG_N sizes at compile
 //    time.                                                                     [DONE, functor does this now]
-// 2. Check m and n size before creating functor type. Set reg_m and reg_n
+// 2. Check m and n size before creating functor type. Set reg_m and reg_n      [TODO, experiment with different tile/reg sizes]
 //    based on m and n size.
-// 3. Handle edge cases for sizes > 1 and < 32.
+// 3. Handle edge cases for sizes > 1 and < 32.                                 [DONE, functor does this via bound checks now]
+// 4. Optimize edge cases for sizes close to multiples of 32 but < 32.
+//    For example, it makes no sense to perform 64x64 for 33x33.
 ////////////////////////////////////////////////////////////////////////////////
 
 #if 0
@@ -867,7 +869,7 @@ struct parallel_batched_gemm {
     }
     n_sub_blocks = tiles_per_row * tiles_per_col;
 
-    printf("blk_m: %u, blk_n: %u, blk_k: %u\ntiles_per_row: %u, tiles_per_col: %u\nn_blk_k_blocks: %lu, n_sub_blocks: %lu\n", blk_m, blk_n, blk_k, tiles_per_row, tiles_per_col, n_blk_k_blocks, n_sub_blocks);
+    // printf("blk_m: %u, blk_n: %u, blk_k: %u\ntiles_per_row: %u, tiles_per_col: %u\nn_blk_k_blocks: %lu, n_sub_blocks: %lu\n", blk_m, blk_n, blk_k, tiles_per_row, tiles_per_col, n_blk_k_blocks, n_sub_blocks);
   }
 
   KOKKOS_INLINE_FUNCTION
@@ -1701,15 +1703,44 @@ void __do_gemm_parallel_batched(options_t options, gemm_args_t gemm_args) {
   STATUS;
 
   if (a == 'N' && b == 'N') {
-    if (gemm_args.dims.c.n >= 20 && gemm_args.dims.c.m >= 20) {
-      // TODO: Branch for TeamShmem?
-      __do_gemm_parallel_batched_template<N, N, blocking_type, algo_tag,
-                                          device_type, 4, 4, 32, algo_mode>(options,
-                                                                            gemm_args);
-    } else { // TODO: SerialOpt2
-      __do_gemm_parallel_batched_template<N, N, blocking_type, algo_tag,
-                                          device_type, 1, 1, 1, algo_mode>(options,
-                                                                           gemm_args);
+    if ((gemm_args.dims.c.n >= 20 && gemm_args.dims.c.m >= 20) &&
+        ((gemm_args.alpha == 1.0F && gemm_args.beta == 0.0F) ? (gemm_args.dims.c.m <= 24 &&  gemm_args.dims.c.n <= 24) :
+         (gemm_args.dims.c.m <= 21 &&  gemm_args.dims.c.m <= 21))) {
+      gemm_args.bp.team_size = 8;
+      gemm_args.bp.vector_len = 8;
+      if (options.blas_args.batch_size_last_dim)
+        __do_gemm_parallel_batched_template<N, N, blocking_type, TeamShmemBatchDim3Tag,
+                                            device_type, 1, 1, 1, algo_mode>(options,
+                                                                              gemm_args);
+      else
+        __do_gemm_parallel_batched_template<N, N, blocking_type, TeamShmemTag,
+                                            device_type, 1, 1, 1, algo_mode>(options,
+                                                                              gemm_args);
+
+    // TODO: Experiment with register / tile size allocations for non-multiples of 32.
+    } else if ((gemm_args.dims.c.n >= 25) && (gemm_args.dims.c.m >= 25)) {
+      // if ((gemm_args.dims.c.n % 32 == 0) && (gemm_args.dims.c.m % 32 == 0)) {
+      //   // TODO: remove bounds checks
+      // }
+      if (options.blas_args.batch_size_last_dim)
+        __do_gemm_parallel_batched_template<N, N, blocking_type, TeamBatchDim3Tag,
+                                            device_type, 4, 4, 32, algo_mode>(options,
+                                                                              gemm_args);
+      else
+        __do_gemm_parallel_batched_template<N, N, blocking_type, TeamTag,
+                                            device_type, 4, 4, 32, algo_mode>(options,
+                                                                              gemm_args);
+
+    } else {
+      if (options.blas_args.batch_size_last_dim)
+        __do_gemm_parallel_batched_template<N, N, blocking_type, SerialBatchDim3TagOpt2,
+                                            device_type, 1, 1, 1, algo_mode>(options,
+                                                                             gemm_args);
+      else
+        __do_gemm_parallel_batched_template<N, N, blocking_type, SerialTagOpt2,
+                                            device_type, 1, 1, 1, algo_mode>(options,
+                                                                             gemm_args);
+
     }
   } else if (a == 'N' && b == 'T') {
     __do_gemm_parallel_batched_template<N, T, blocking_type, algo_tag,
