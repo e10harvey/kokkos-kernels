@@ -855,6 +855,7 @@ struct parallel_batched_gemm {
   parallel_batched_gemm(gemm_args_t gemm_args, bool batch_size_last_dim, size_t divisor = 1, unsigned tile_m = 1, unsigned tile_n = 1, unsigned tile_k = 1)
     : gemm_args_(gemm_args), divisor_(divisor), blk_m(tile_m), blk_n(tile_n), blk_k(tile_k) {
     // Use modulo to over-estimate the number of tiles.
+    // TODO: Try moving n_blk_k_blocks to operator.
     if (batch_size_last_dim) {
       tiles_per_row = (unsigned)gemm_args.C.extent(0) / blk_m + !!((unsigned)gemm_args.C.extent(0) % blk_m);
       tiles_per_col = (unsigned)gemm_args.C.extent(1) / blk_n + !!((unsigned)gemm_args.C.extent(1) % blk_n);
@@ -1163,7 +1164,6 @@ struct parallel_batched_gemm {
       });
 
     // Check whether we have a partial block
-    // TODO: move this to the constructor
     unsigned partial_blk_k = gemm_args_.dims.a.n - (n_blk_k_blocks * blk_k);
     int partial_block = !!(partial_blk_k);
 
@@ -1177,7 +1177,6 @@ struct parallel_batched_gemm {
 
       // Get this threads next blk_k entries from global memory
       // Each thread has its own copy of prefetch_reg_b. TeamThreadRange runs over all threads in the team.
-      // TODO: only fetch partial_blk_k since the last fetch is out of bounds?
       Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_n / REG_N), [&](const int &thread_id) {
           auto thread_offset = thread_id + start_n;
           Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_k), [&](const int &vlane_id) {
@@ -1256,7 +1255,6 @@ struct parallel_batched_gemm {
     } // end n_blk_k_blocks loop
 
     // Multiply last block, may be a partial block
-    // TODO: move this to the constructor
     partial_blk_k = partial_block ? partial_blk_k : blk_k;
     Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m / REG_M), [&](const int &thread_id) {
         Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n / REG_N), [&](const int &vlane_id) {
