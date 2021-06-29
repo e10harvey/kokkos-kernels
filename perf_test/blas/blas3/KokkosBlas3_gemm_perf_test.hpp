@@ -854,16 +854,19 @@ struct parallel_batched_gemm {
 
   parallel_batched_gemm(gemm_args_t gemm_args, bool batch_size_last_dim, size_t divisor = 1, unsigned tile_m = 1, unsigned tile_n = 1, unsigned tile_k = 1)
     : gemm_args_(gemm_args), divisor_(divisor), blk_m(tile_m), blk_n(tile_n), blk_k(tile_k) {
+    // Use modulo to over-estimate the number of tiles.
     if (batch_size_last_dim) {
-      tiles_per_row = (unsigned)gemm_args.C.extent(0) / blk_m;
-      tiles_per_col = (unsigned)gemm_args.C.extent(1) / blk_n;
+      tiles_per_row = (unsigned)gemm_args.C.extent(0) / blk_m + !!((unsigned)gemm_args.C.extent(0) % blk_m);
+      tiles_per_col = (unsigned)gemm_args.C.extent(1) / blk_n + !!((unsigned)gemm_args.C.extent(1) % blk_n);
       n_blk_k_blocks = (unsigned)gemm_args.A.extent(1) / blk_k;
     } else {
-      tiles_per_row = (unsigned)gemm_args.C.extent(1) / blk_m;
-      tiles_per_col = (unsigned)gemm_args.C.extent(2) / blk_n;
+      tiles_per_row = (unsigned)gemm_args.C.extent(1) / blk_m + !!((unsigned)gemm_args.C.extent(1) % blk_m);
+      tiles_per_col = (unsigned)gemm_args.C.extent(2) / blk_n + !!((unsigned)gemm_args.C.extent(2) % blk_n);
       n_blk_k_blocks = (unsigned)gemm_args.A.extent(2) / blk_k;
     }
     n_sub_blocks = tiles_per_row * tiles_per_col;
+
+    printf("blk_m: %u, blk_n: %u, blk_k: %u\ntiles_per_row: %u, tiles_per_col: %u\nn_blk_k_blocks: %lu, n_sub_blocks: %lu\n", blk_m, blk_n, blk_k, tiles_per_row, tiles_per_col, n_blk_k_blocks, n_sub_blocks);
   }
 
   KOKKOS_INLINE_FUNCTION
@@ -1160,6 +1163,7 @@ struct parallel_batched_gemm {
       });
 
     // Check whether we have a partial block
+    // TODO: move this to the constructor
     unsigned partial_blk_k = gemm_args_.dims.a.n - (n_blk_k_blocks * blk_k);
     int partial_block = !!(partial_blk_k);
 
@@ -1252,6 +1256,7 @@ struct parallel_batched_gemm {
     } // end n_blk_k_blocks loop
 
     // Multiply last block, may be a partial block
+    // TODO: move this to the constructor
     partial_blk_k = partial_block ? partial_blk_k : blk_k;
     Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m / REG_M), [&](const int &thread_id) {
         Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n / REG_N), [&](const int &vlane_id) {
@@ -1698,11 +1703,12 @@ void __do_gemm_parallel_batched(options_t options, gemm_args_t gemm_args) {
   STATUS;
 
   if (a == 'N' && b == 'N') {
-    if (gemm_args.dims.c.n >= 32 && gemm_args.dims.c.m >= 32) {
+    if (gemm_args.dims.c.n >= 20 && gemm_args.dims.c.m >= 20) {
+      // TODO: Branch for TeamShmem?
       __do_gemm_parallel_batched_template<N, N, blocking_type, algo_tag,
                                           device_type, 4, 4, 32, algo_mode>(options,
                                                                             gemm_args);
-    } else {
+    } else { // TODO: SerialOpt2
       __do_gemm_parallel_batched_template<N, N, blocking_type, algo_tag,
                                           device_type, 1, 1, 1, algo_mode>(options,
                                                                            gemm_args);
