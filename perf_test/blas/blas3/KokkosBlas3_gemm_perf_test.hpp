@@ -411,7 +411,6 @@ default_scalar access_view_bounds_check(view_type v, int m, int n, const boundsC
   return v(m, n);
 }
 
-//                fma_bounds_check(svC, cm, cn, reg_c[m][n], gemm_args_.beta, bounds_check_tag);
 template<class view_type, class size_type>
 KOKKOS_INLINE_FUNCTION
 void fma_bounds_check(view_type v, size_type m, size_type n, default_scalar reg_c, default_scalar beta, const boundsCheck::yes &) {
@@ -423,6 +422,19 @@ template<class view_type, class size_type>
 KOKKOS_INLINE_FUNCTION
 void fma_bounds_check(view_type v, size_type m, size_type n, default_scalar reg_c, default_scalar beta, const boundsCheck::no &) {
   v(m, n) = reg_c + v(m, n) * beta;
+}
+
+template<class view_type, class size_type>
+KOKKOS_INLINE_FUNCTION
+void fma_bounds_check(view_type v, size_type m, size_type n, default_scalar reg_c, const boundsCheck::yes &) {
+  if (m < v.extent_int(0) && n < v.extent_int(1))
+    v(m, n) = reg_c;
+}
+
+template<class view_type, class size_type>
+KOKKOS_INLINE_FUNCTION
+void fma_bounds_check(view_type v, size_type m, size_type n, default_scalar reg_c, const boundsCheck::no &) {
+  v(m, n) = reg_c;
 }
 
 /*************************** Internal templated fns **************************/
@@ -1310,6 +1322,24 @@ struct parallel_batched_gemm {
           });
       });
 
+    if (gemm_args_.beta == 0.0F) {
+      // store results back to global memory
+      Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m / REG_M), [&](const int &thread_id) {
+          auto thread_m_offset = thread_id + start_m;
+          Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n / REG_N), [&](const int &vlane_id) {
+              auto thread_n_offset = vlane_id + start_n;
+#pragma unroll
+              for (int m = 0; m < REG_M; ++m) {
+                int cm = thread_m_offset + m * STRIDE_M;
+#pragma unroll
+                for (int n = 0; n < REG_N; ++n) {
+                  int cn = thread_n_offset + n * STRIDE_N;
+                  fma_bounds_check(svC, cm, cn, reg_c[m][n], bounds_check_tag);
+                }
+              }
+            });
+        });
+    } else {
     // store results back to global memory
     Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m / REG_M), [&](const int &thread_id) {
         auto thread_m_offset = thread_id + start_m;
@@ -1326,6 +1356,7 @@ struct parallel_batched_gemm {
             }
           });
       });
+    }
   }
 
   KOKKOS_INLINE_FUNCTION
@@ -1741,7 +1772,7 @@ void __do_gemm_parallel_batched(options_t options, gemm_args_t gemm_args) {
     if (std::is_same<algo_tag, TeamTag>::value) {
       if ((gemm_args.dims.c.n >= 20 && gemm_args.dims.c.m >= 20) &&
           ((gemm_args.alpha == 1.0F && gemm_args.beta == 0.0F) ? (gemm_args.dims.c.m <= 24 &&  gemm_args.dims.c.n <= 24) :
-           (gemm_args.dims.c.m <= 21 &&  gemm_args.dims.c.m <= 21))) {
+           (gemm_args.dims.c.m <= 21 &&  gemm_args.dims.c.n <= 21))) {
         gemm_args.bp.team_size = 8;
         gemm_args.bp.vector_len = 8;
         if (options.blas_args.batch_size_last_dim)
