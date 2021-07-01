@@ -73,11 +73,6 @@
 //    For example, it makes no sense to perform 64x64 for 33x33.
 ////////////////////////////////////////////////////////////////////////////////
 
-////////////////////////////////////////////////////////////////////////////////
-// BUGs
-// 1. Fix SerialOpt2 and DblBuf when M != N
-////////////////////////////////////////////////////////////////////////////////
-
 #if 0
 // Source: https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#wmma-example
 #include <mma.h>
@@ -857,42 +852,20 @@ template <class MemberType, class TransAType, class TransBType,
 struct parallel_batched_gemm {
   gemm_args_t gemm_args_;
   size_t divisor_, n_sub_blocks, n_blk_k_blocks;
-  unsigned tiles_per_row, tiles_per_col, blk_m, blk_n, blk_k, trailing_rows, trailing_cols;
+  unsigned tiles_per_row, tiles_per_col, blk_m, blk_n, blk_k;
 
   parallel_batched_gemm(gemm_args_t gemm_args, bool batch_size_last_dim, size_t divisor = 1, unsigned tile_m = 1, unsigned tile_n = 1, unsigned tile_k = 1)
     : gemm_args_(gemm_args), divisor_(divisor), blk_m(tile_m), blk_n(tile_n), blk_k(tile_k) {
-    trailing_rows = trailing_cols = 0;
     // Use modulo to over-estimate the number of tiles.
     // TODO: Try moving n_blk_k_blocks to operator.
-    // TODO: Try making trailing_{rows,cols} trailing_{rows,cols}_per_tile
     if (batch_size_last_dim) {
       tiles_per_row = (unsigned)gemm_args.C.extent(0) / blk_m + !!((unsigned)gemm_args.C.extent(0) % blk_m);
       tiles_per_col = (unsigned)gemm_args.C.extent(1) / blk_n + !!((unsigned)gemm_args.C.extent(1) % blk_n);
       n_blk_k_blocks = (unsigned)gemm_args.A.extent(1) / blk_k;
-
-      if ((unsigned)gemm_args.C.extent(0) > blk_m && (unsigned)gemm_args.C.extent(0) % blk_m) {
-        tiles_per_row--;
-        trailing_rows = (unsigned)gemm_args.C.extent(0) % blk_m;
-      }
-
-      if ((unsigned)gemm_args.C.extent(1) > blk_n && (unsigned)gemm_args.C.extent(1) % blk_n) {
-        tiles_per_col--;
-        trailing_cols = (unsigned)gemm_args.C.extent(1) % blk_n;
-      }
     } else {
       tiles_per_row = (unsigned)gemm_args.C.extent(1) / blk_m + !!((unsigned)gemm_args.C.extent(1) % blk_m);
       tiles_per_col = (unsigned)gemm_args.C.extent(2) / blk_n + !!((unsigned)gemm_args.C.extent(2) % blk_n);
       n_blk_k_blocks = (unsigned)gemm_args.A.extent(2) / blk_k;
-
-      if ((unsigned)gemm_args.C.extent(1) > blk_m && (unsigned)gemm_args.C.extent(1) % blk_m) {
-        tiles_per_row--;
-        trailing_rows = (unsigned)gemm_args.C.extent(1) % blk_m;
-      }
-
-      if ((unsigned)gemm_args.C.extent(2) > blk_n && (unsigned)gemm_args.C.extent(2) % blk_n) {
-        tiles_per_col--;
-        trailing_cols = (unsigned)gemm_args.C.extent(2) % blk_n;
-      }
     }
     n_sub_blocks = tiles_per_row * tiles_per_col;
 
@@ -1164,6 +1137,7 @@ struct parallel_batched_gemm {
     auto svB = Kokkos::subview(gemm_args_.B, batch_idx, Kokkos::ALL(), Kokkos::ALL());
     auto svC = Kokkos::subview(gemm_args_.C, batch_idx, Kokkos::ALL(), Kokkos::ALL());
 
+
     unsigned local_team_idx = member.league_rank() % n_sub_blocks;
     unsigned start_m = (local_team_idx / tiles_per_col) * blk_m;
     unsigned start_n = (local_team_idx % tiles_per_col) * blk_n;
@@ -1311,39 +1285,17 @@ struct parallel_batched_gemm {
 
     // store results back to global memory
     Kokkos::parallel_for(Kokkos::TeamThreadRange(member, 0, blk_m / REG_M), [&](const int &thread_id) {
-        auto thread_m_offset = thread_id + start_m; // 0..7
+        auto thread_m_offset = thread_id + start_m;
         Kokkos::parallel_for(Kokkos::ThreadVectorRange(member, 0, blk_n / REG_N), [&](const int &vlane_id) {
-            auto thread_n_offset = vlane_id + start_n; //0..7
+            auto thread_n_offset = vlane_id + start_n;
 #pragma unroll
-            for (int m = 0; m < REG_M; ++m) { //0..3
-              for (int tm = 0; tm <= trailing_rows; ++tm) {
-                int cm = thread_m_offset + tm + m * STRIDE_M;
+            for (int m = 0; m < REG_M; ++m) {
+              int cm = thread_m_offset + m * STRIDE_M;
 #pragma unroll
-                for (int n = 0; n < REG_N; ++n) { //0..3
-                  for (int tn = 0; tn <= trailing_cols; ++tn) {
-                    int cn = thread_n_offset + tn + n * STRIDE_N;
-
-
-                    if (cn < svC.extent_int(1) && cm < svC.extent_int(0)) {
-                      // a single thread is executing this, accumulate remaining dot product into reg_c
-                      // TODO, use scratch memory for svA and svB here
-                      // TODO, use prefetch registers for svA and svB here
-
-                      // If cm or cn are gt the tile size, this thread should be done with reg_c[m][n]
-                      if (cm >= blk_m || cn >= blk_n) {
-                        if (trailing_rows || trailing_cols) {
-                          reg_c[m][n] = 0;
-
-                          // Dot product with alpha
-#pragma unroll
-                          for (int k = 0; k < svA.extent_int(1); k++)
-                            reg_c[m][n] += svA(cm, k) * svB(k, cn) * gemm_args_.alpha;
-                        }
-                      }
-                      svC(cm, cn) = reg_c[m][n] + svC(cm, cn) * gemm_args_.beta;
-                    }
-                  }
-                }
+              for (int n = 0; n < REG_N; ++n) {
+                int cn = thread_n_offset + n * STRIDE_N;
+                if (cn < svC.extent_int(1) && cm < svC.extent_int(0))
+                  svC(cm, cn) = reg_c[m][n] + svC(cm, cn) * gemm_args_.beta;
               }
             }
           });
