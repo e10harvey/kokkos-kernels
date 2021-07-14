@@ -305,8 +305,13 @@ struct SPMV_MV<AT, AO, AD, AM, AS, XT, XL, XD, XM, YT, YL, YD, YM, true, false,
 };
 #endif
 
+<<<<<<< HEAD
 }  // namespace Impl
 }  // namespace KokkosSparse
+=======
+}
+}
+>>>>>>> Experimental tensor-core SpMV for BlockCrsMatrix with block size 16
 
 //
 // Macro for declaration of full specialization of
