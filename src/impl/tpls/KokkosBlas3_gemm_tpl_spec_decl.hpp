@@ -546,7 +546,7 @@ struct GEMM< \
     \
     constexpr int numDotsLayoutLeftThreshold = 1600; \
     constexpr int numDotsLayoutRightThreshold = 100; \
-    if(   (!A_is_lr && transa != CUBLAS_OP_N && transb == CUBLAS_OP_N && M*N < numDotsLayoutLeftThreshold) \
+    if(false &&   (!A_is_lr && transa != CUBLAS_OP_N && transb == CUBLAS_OP_N && M*N < numDotsLayoutLeftThreshold) \
        || ( A_is_lr && transa != CUBLAS_OP_N && transb == CUBLAS_OP_N && M*N < numDotsLayoutRightThreshold)) { \
       DotBasedGEMM<ExecSpace,AViewType,BViewType,CViewType> gemm(alpha,A,B,beta,C); \
       gemm.run(false); \
@@ -619,7 +619,7 @@ struct GEMM< \
     \
     constexpr int numDotsLayoutLeftThreshold = 1600; \
     constexpr int numDotsLayoutRightThreshold = 100; \
-    if(   (!A_is_lr && transa != CUBLAS_OP_N && transb == CUBLAS_OP_N && M*N < numDotsLayoutLeftThreshold) \
+    if(false &&   (!A_is_lr && transa != CUBLAS_OP_N && transb == CUBLAS_OP_N && M*N < numDotsLayoutLeftThreshold) \
        || ( A_is_lr && transa != CUBLAS_OP_N && transb == CUBLAS_OP_N && M*N < numDotsLayoutRightThreshold)) { \
       DotBasedGEMM<ExecSpace,AViewType,BViewType,CViewType> gemm(alpha,A,B,beta,C); \
       gemm.run(false); \
@@ -629,7 +629,7 @@ struct GEMM< \
       if(!A_is_lr && !B_is_lr && !C_is_lr ) \
         cublasSgemm(s.handle, transa, transb, M, N, K, &alpha, A.data(), LDA, B.data(), LDB, &beta, C.data(), LDC); \
       if(A_is_lr && B_is_lr && C_is_lr ) \
-        cublasSgemm(s.handle, transb, transa, N, M, K, &alpha, B.data(), LDB, A.data(), LDA, &beta, C.data(), LDC); \
+        cublasSgemm(s.handle, transb, transa, B.extent(1), A.extent(0), A.extent(1), &alpha, B.data(), B.extent(1), A.data(), A.extent(1), &beta, C.data(), B.extent(1)); \
     } \
     Kokkos::Profiling::popRegion(); \
   } \
