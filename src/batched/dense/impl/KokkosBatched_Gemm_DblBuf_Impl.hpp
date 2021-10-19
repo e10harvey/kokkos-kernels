@@ -181,6 +181,15 @@ class BatchedDblBufGemm {
     Kokkos::parallel_for("BatchedDblBufGemm", team_policy, functor);
   }
 
+  // TODO - scalaing beyond 32x32
+  //   Option 0: Increase number of tiles and figure out how to map kokkos teams
+  //             into cuda grid. Keep team size and vector lanes constant.
+  //   Option 1: Increase register sizes to handle rows/cols past tile size
+  //   Option 2: Fix league_size and have single team solve full tile followed
+  //   by
+  //             same team solving extra rows/cols (without multiplying by the
+  //             zero rows/cols)
+
  public:
   // Make Functor public for cuda 9.
   // See https://github.com/kokkos/kokkos-kernels/issues/1121.
@@ -298,12 +307,17 @@ class BatchedDblBufGemm {
       view_value_type reg_a[REG_M] = {0}, reg_b[REG_N] = {0},
                       reg_c[REG_M][REG_N] = {{0}};
 
-      unsigned batch_idx = member.league_rank() / __n_sub_tiles;
+      unsigned batch_idx =
+          member.league_rank() %
+          __C.extent_int(0);  // z in dimGrid - batch_idx: 0..16K-1
 
       // Compute starting tile offsets for each team into svA, svB, svC
-      unsigned local_team_idx = member.league_rank() % __n_sub_tiles;
-      unsigned start_m        = (local_team_idx / __tiles_per_col) * __tile_m;
-      unsigned start_n        = (local_team_idx % __tiles_per_col) * __tile_n;
+      unsigned local_team_idx =
+          member.league_rank() / __C.extent_int(0);  // local_team_idx: 0,1,2,3
+      unsigned start_m =
+          (local_team_idx / __tiles_per_col) * __tile_m;  // x in dimGrid
+      unsigned start_n =
+          (local_team_idx % __tiles_per_col) * __tile_n;  // y in dimGrid
 
       // Fetch entire 2-rank sub-matrix
       auto svA = subview_wrapper(__A, batch_idx, Kokkos::ALL(), Kokkos::ALL(),
