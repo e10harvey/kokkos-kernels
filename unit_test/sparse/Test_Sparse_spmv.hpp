@@ -1406,12 +1406,6 @@ void test_spmv_bsrmatrix(lno_t blockSize, lno_t k, y_scalar_t alpha, y_scalar_t 
 }
 
 
-#define EXECUTE_TEST_ISSUE_101( DEVICE) \
-TEST_F( TestCategory,sparse ## _ ## spmv_issue_101 ## _ ## OFFSET ## _ ## DEVICE ) { \
-	test_github_issue_101<DEVICE> (); \
-}
-
-
 #define EXECUTE_TEST(SCALAR, ORDINAL, OFFSET, DEVICE) \
 TEST_F( TestCategory,sparse ## _ ## spmv ## _ ## SCALAR ## _ ## ORDINAL ## _ ## OFFSET ## _ ## DEVICE ) { \
   test_spmv<SCALAR,ORDINAL,OFFSET,DEVICE> (1000, 1000 * 30, 200, 10, true); \
@@ -1421,17 +1415,6 @@ TEST_F( TestCategory,sparse ## _ ## spmv ## _ ## SCALAR ## _ ## ORDINAL ## _ ## 
   test_spmv<SCALAR,ORDINAL,OFFSET,DEVICE> (50000, 50000 * 30, 100, 10, false); \
   test_spmv<SCALAR,ORDINAL,OFFSET,DEVICE> (10000, 10000 * 20, 100, 5, false); \
   test_spmv_controls<SCALAR,ORDINAL,OFFSET,DEVICE> (10000, 10000 * 20, 100, 5); \
-}
-
-#define EXECUTE_TEST_MV(SCALAR, ORDINAL, OFFSET, LAYOUT, DEVICE) \
-TEST_F( TestCategory,sparse ## _ ## spmv_mv ## _ ## SCALAR ## _ ## ORDINAL ## _ ## OFFSET ## _ ## LAYOUT ## _ ## DEVICE ) { \
-  test_spmv_mv<SCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (1000, 1000 * 30, 200, 10, true, 1); \
-  test_spmv_mv<SCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (1000, 1000 * 30, 100, 10, true, 5); \
-  test_spmv_mv<SCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (1000, 1000 * 20, 100, 5, true, 10); \
-  test_spmv_mv<SCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (50000, 50000 * 30, 200, 10, false, 1); \
-  test_spmv_mv<SCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (50000, 50000 * 30, 100, 10, false, 5); \
-  test_spmv_mv<SCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (10000, 10000 * 20, 100, 5, false, 10); \
-  test_spmv_mv_heavy<SCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (200, 200 * 10, 60, 4, 30); \
 }
 
 #define EXECUTE_TEST_MV(SCALAR, ORDINAL, OFFSET, LAYOUT, DEVICE)                    \
