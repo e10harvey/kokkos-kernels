@@ -58,6 +58,16 @@ namespace Impl {
 /// CT/NT, NT/CT, CT/CT
 ///
 
+// TODO - scalaing beyond 32x32
+//   Option 0: Increase number of tiles and figure out how to map kokkos teams
+//             into cuda grid. Keep team size and vector lanes constant.
+//             TODO: write up small example and ask Christian.
+//   Option 1: Increase register sizes to handle rows/cols past tile size
+//   Option 2: Fix league_size and have single team solve full tile followed
+//   by
+//             same team solving extra rows/cols (without multiplying by the
+//             zero rows/cols)
+
 template <class ArgTransA, class ArgTransB, class ArgBatchSzDim,
           class HandleType, class ScalarType, class AViewType, class BViewType,
           class CViewType, class ArgBoundsCheck, int TILE_M, int TILE_N,
@@ -111,10 +121,10 @@ class BatchedDblBufGemm {
     //   GPU threads' registers. In short, we must map register allocations
     //   to parallel_for loop bounds.
     // TODO: check these expressions for all tile_m, tile_n, tile_k in Z+.
-    constexpr int reg_m    = TILE_M / TILE_K;
+    constexpr int reg_m    = TILE_M / TILE_K;  // 32 / 8 = 4; 32 / 4 = 8;
     constexpr int reg_n    = TILE_N / TILE_K + 2 * !!(TILE_N % TILE_K);
     constexpr int stride_m = TILE_K;
-    constexpr int stride_n = TILE_N / reg_n;
+    constexpr int stride_n = TILE_K;
     using functor_type = Functor<member_type, reg_m, reg_n, stride_m, stride_n>;
 
     functor_type functor(*this, __A, __B, __C, TILE_M, TILE_N, TILE_K);
@@ -289,6 +299,12 @@ class BatchedDblBufGemm {
           });
     }
 
+    // Assuming tile dimension of 32x32x8 and matrix dimensions of 33x33
+    // Kernel launch 1 - solves full 32x32 tile and returns partial
+    // dot-products. TODO: where to cache these dot-products -- global memory?
+    // Kernels launch 2 - solves extra rows and extra cols beyond 32x32.
+    // What happens with this approach for 64x64, for example. We have no kernel
+    // launch 2. We just have kernel launch 1 with 4 tiles per 64x64 matrix.
     KOKKOS_INLINE_FUNCTION
     void operator()(const MemberType &member) const {
       // Allocate registers used for prefetching
@@ -298,7 +314,11 @@ class BatchedDblBufGemm {
       view_value_type reg_a[REG_M] = {0}, reg_b[REG_N] = {0},
                       reg_c[REG_M][REG_N] = {{0}};
 
-      unsigned batch_idx = member.league_rank() / __n_sub_tiles;
+      unsigned batch_idx =
+          member.league_rank() /
+          __n_sub_tiles;  // 64x64x16K -- league_size: 16K*4. __n_sub_tiles: 4
+      // batch_idx: 0 -> league_rank: 0..3
+      // batch_idx: 1 -> league_rank: 4..7 ....
 
       // Compute starting tile offsets for each team into svA, svB, svC
       unsigned local_team_idx = member.league_rank() % __n_sub_tiles;

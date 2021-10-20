@@ -467,8 +467,12 @@ int BatchedGemm(BatchedGemmHandleType *const handle, const ScalarType alpha,
           ((std::is_same<layout_type, Kokkos::LayoutLeft>::value)
                ? (c_m >= 16)
                : (c_m >= 24 && c_m <= 32) || (c_m >= 45 && c_m <= 64))) {
-        handle->teamSz = handle->vecLen = 8;
-        constexpr int tile_m = 32, tile_n = 32, tile_k = 8;
+        handle->teamSz       = 16;
+        handle->vecLen       = 8;
+        constexpr int tile_m = 32, tile_n = 64,
+                      tile_k =
+                          8;  // -- Slightly better perf for 64x64. TODO: Why?
+        // constexpr int tile_m = 32, tile_n = 32, tile_k = 8;
         if (c_m % 32 == 0)  // No bounds checking
           ret =
               Impl::BatchedDblBufGemm<ArgTransA, ArgTransB, ArgBatchSzDim,
