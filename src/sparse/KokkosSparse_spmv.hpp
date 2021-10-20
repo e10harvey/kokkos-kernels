@@ -648,7 +648,7 @@ void spmv_struct(const char mode[], const int stencil_type,
   XVector_Internal x_i = x;
   YVector_Internal y_i = y;
 
-  return Impl::SPMV_STRUCT<
+  return KokkosSparse::Impl::SPMV_STRUCT<
       typename AMatrix_Internal::value_type,
       typename AMatrix_Internal::ordinal_type,
       typename AMatrix_Internal::device_type,
@@ -693,6 +693,7 @@ struct SPMV2D1D_STRUCT<AlphaType, AMatrix, XVector, BetaType, YVector,
                 RANK_ONE());
     return true;
   }
+};
 #else
 template <class AlphaType, class AMatrix, class XVector, class BetaType,
           class YVector>
@@ -706,8 +707,9 @@ struct SPMV2D1D_STRUCT<AlphaType, AMatrix, XVector, BetaType, YVector,
       const BetaType& /*beta*/, const YVector& /*y*/) {
     return false;
   }
-#endif
 };
+#endif
+
 
 #if defined(KOKKOSKERNELS_INST_LAYOUTLEFT) || !defined(KOKKOSKERNELS_ETI_ONLY)
 template <class AlphaType, class AMatrix, class XVector, class BetaType,
@@ -724,6 +726,7 @@ struct SPMV2D1D_STRUCT<AlphaType, AMatrix, XVector, BetaType, YVector,
                 RANK_ONE());
     return true;
   }
+};
 #else
 template <class AlphaType, class AMatrix, class XVector, class BetaType,
           class YVector>
@@ -737,8 +740,8 @@ struct SPMV2D1D_STRUCT<AlphaType, AMatrix, XVector, BetaType, YVector,
       const BetaType& /*beta*/, const YVector& /*y*/) {
     return false;
   }
-#endif
 };
+#endif
 
 #if defined(KOKKOSKERNELS_INST_LAYOUTLEFT) || !defined(KOKKOSKERNELS_ETI_ONLY)
 template <class AlphaType, class AMatrix, class XVector, class BetaType,
@@ -755,6 +758,7 @@ struct SPMV2D1D_STRUCT<AlphaType, AMatrix, XVector, BetaType, YVector,
                 RANK_ONE());
     return true;
   }
+};
 #else
 template <class AlphaType, class AMatrix, class XVector, class BetaType,
           class YVector>
@@ -768,8 +772,9 @@ struct SPMV2D1D_STRUCT<AlphaType, AMatrix, XVector, BetaType, YVector,
       const BetaType& /*beta*/, const YVector& /*y*/) {
     return false;
   }
-#endif
 };
+#endif
+
 
 template <class AlphaType, class AMatrix, class XVector, class BetaType,
           class YVector>
@@ -861,7 +866,7 @@ void spmv_struct(const char mode[], const int stencil_type,
     XVector_Internal x_i = x;
     YVector_Internal y_i = y;
 
-    return Impl::SPMV_MV<
+    return KokkosSparse::Impl::SPMV_MV<
         typename AMatrix_Internal::value_type,
         typename AMatrix_Internal::ordinal_type,
         typename AMatrix_Internal::device_type,
