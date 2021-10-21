@@ -30,6 +30,6 @@ jobs:
           if [[ ! -z $(git status -s -uno . -- ':!.github') ]]; then
             echo "The following files require formatting changes:"
             git status -s -uno . -- ':!.github'
-            git diff
+            git diff --staged
             exit 1
           fi
