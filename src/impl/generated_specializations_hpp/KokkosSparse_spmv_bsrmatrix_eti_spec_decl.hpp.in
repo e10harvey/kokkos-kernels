@@ -46,9 +46,9 @@
 namespace KokkosSparse {
 namespace Experimental {
 namespace Impl {
-//clang-format off
+// clang-format off
 @SPARSE_SPMV_BSRMATRIX_ETI_DECL_BLOCK@
-//clang-format on
+// clang-format on
 }  // namespace Impl
 }  // namespace Experimental
 }  // namespace KokkosSparse
