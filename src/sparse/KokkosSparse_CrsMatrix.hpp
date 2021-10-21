@@ -531,12 +531,12 @@ class CrsMatrix {
   /// Allocate the values array for subsquent fill.
   template <typename InOrdinal, typename InLayout, typename InDevice,
             typename InMemTraits, typename InSizeType>
-  [[deprecated(
-      "Use the constructor that accepts ncols as input "
-      "instead.")]] CrsMatrix(const std::string& label,
-                              const Kokkos::StaticCrsGraph<
-                                  InOrdinal, InLayout, InDevice, InMemTraits,
-                                  InSizeType>& graph_)
+  [
+      [deprecated("Use the constructor that accepts ncols as input "
+                  "instead.")]] CrsMatrix(const std::string& label,
+                                          const Kokkos::StaticCrsGraph<
+                                              InOrdinal, InLayout, InDevice,
+                                              InMemTraits, InSizeType>& graph_)
       : graph(graph_.entries, graph_.row_map),
         values(label, graph_.entries.extent(0)),
         numCols_(maximum_entry(graph_) + 1) {}
