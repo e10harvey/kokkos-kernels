@@ -21,7 +21,6 @@ typedef Kokkos::complex<double> kokkos_complex_double;
 typedef Kokkos::complex<float> kokkos_complex_float;
 typedef Kokkos::Experimental::half_t kokkos_half;
 
-
 namespace Test {
 
 template <class VectorType0, class VectorType1>
@@ -35,11 +34,11 @@ struct fSPMV {
   VectorType1 y;
   mag_type eps;
 
-  fSPMV(const VectorType0& _ex_y, const VectorType1& _y, const mag_type _eps)
+  fSPMV(const VectorType0 &_ex_y, const VectorType1 &_y, const mag_type _eps)
       : expected_y(_ex_y), y(_y), eps(_eps) {}
 
   KOKKOS_INLINE_FUNCTION
-  void operator()(const int i, value_type& err) const {
+  void operator()(const int i, value_type &err) const {
     const mag_type error =
         AT::abs(expected_y(i) - y(i)) / (AT::abs(expected_y(i)) > ATM::zero()
                                              ? AT::abs(expected_y(i))
@@ -142,7 +141,7 @@ void check_spmv(crsMat_t input_mat, x_vector_type x, y_vector_type y,
   try {
     KokkosSparse::spmv(&mode, alpha, input_mat, x, beta, y);
     Kokkos::fence();
-  } catch (std::exception& e) {
+  } catch (std::exception &e) {
     threw = true;
     msg   = e.what();
   }
@@ -187,7 +186,7 @@ void check_spmv_mv(crsMat_t input_mat, x_vector_type x, y_vector_type y,
   try {
     KokkosSparse::spmv(&mode, alpha, input_mat, x, beta, y);
     Kokkos::fence();
-  } catch (std::exception& e) {
+  } catch (std::exception &e) {
     threw = true;
     msg   = e.what();
   }
@@ -220,7 +219,7 @@ void check_spmv_mv(crsMat_t input_mat, x_vector_type x, y_vector_type y,
 template <typename crsMat_t, typename x_vector_type, typename y_vector_type>
 void check_spmv_struct(
     const crsMat_t input_mat, const int stencil_type,
-    const Kokkos::View<typename crsMat_t::non_const_ordinal_type*,
+    const Kokkos::View<typename crsMat_t::non_const_ordinal_type *,
                        Kokkos::HostSpace>
         structure,
     x_vector_type x, y_vector_type y,
@@ -262,7 +261,7 @@ void check_spmv_struct(
 template <typename crsMat_t, typename x_vector_type, typename y_vector_type>
 void check_spmv_mv_struct(
     const crsMat_t input_mat, const int stencil_type,
-    const Kokkos::View<typename crsMat_t::non_const_ordinal_type*,
+    const Kokkos::View<typename crsMat_t::non_const_ordinal_type *,
                        Kokkos::HostSpace>
         structure,
     x_vector_type x, y_vector_type y, y_vector_type expected_y,
@@ -434,8 +433,8 @@ void test_spmv_mv(lno_t numRows, size_type nnz, lno_t bandwidth,
       typename KokkosSparse::CrsMatrix<scalar_t, lno_t, Device, void, size_type>
           crsMat_t;
 
-  typedef Kokkos::View<scalar_t**, layout, Device> ViewTypeX;
-  typedef Kokkos::View<scalar_t**, layout, Device> ViewTypeY;
+  typedef Kokkos::View<scalar_t **, layout, Device> ViewTypeX;
+  typedef Kokkos::View<scalar_t **, layout, Device> ViewTypeY;
 
   ViewTypeX b_x("A", numRows, numMV);
   ViewTypeY b_y("B", numCols, numMV);
@@ -493,8 +492,8 @@ void test_spmv_mv_heavy(lno_t numRows, size_type nnz, lno_t bandwidth,
       typename KokkosSparse::CrsMatrix<scalar_t, lno_t, Device, void, size_type>
           crsMat_t;
 
-  typedef Kokkos::View<scalar_t**, layout, Device> ViewTypeX;
-  typedef Kokkos::View<scalar_t**, layout, Device> ViewTypeY;
+  typedef Kokkos::View<scalar_t **, layout, Device> ViewTypeX;
+  typedef Kokkos::View<scalar_t **, layout, Device> ViewTypeY;
 
   crsMat_t input_mat = KokkosKernels::Impl::kk_generate_sparse_matrix<crsMat_t>(
       numRows, numRows, nnz, row_size_variance, bandwidth);
@@ -538,10 +537,10 @@ void test_spmv_struct_1D(lno_t nx, lno_t leftBC, lno_t rightBC) {
   using x_vector_type = scalar_view_t;
   using y_vector_type = scalar_view_t;
 
-  Kokkos::View<lno_t*, Kokkos::HostSpace> structure("Spmv Structure", 1);
+  Kokkos::View<lno_t *, Kokkos::HostSpace> structure("Spmv Structure", 1);
   structure(0) = nx;
-  Kokkos::View<lno_t * [3], Kokkos::HostSpace> mat_structure("Matrix Structure",
-                                                             1);
+  Kokkos::View<lno_t *[3], Kokkos::HostSpace> mat_structure("Matrix Structure",
+                                                            1);
   mat_structure(0, 0) = nx;
   if (leftBC == 1) {
     mat_structure(0, 1) = 1;
@@ -583,11 +582,11 @@ void test_spmv_struct_2D(lno_t nx, lno_t ny, lno_t horizontalBC,
   typedef scalar_view_t x_vector_type;
   typedef scalar_view_t y_vector_type;
 
-  Kokkos::View<lno_t*, Kokkos::HostSpace> structure("Spmv Structure", 2);
+  Kokkos::View<lno_t *, Kokkos::HostSpace> structure("Spmv Structure", 2);
   structure(0) = nx;
   structure(1) = ny;
-  Kokkos::View<lno_t * [3], Kokkos::HostSpace> mat_structure("Matrix Structure",
-                                                             2);
+  Kokkos::View<lno_t *[3], Kokkos::HostSpace> mat_structure("Matrix Structure",
+                                                            2);
   mat_structure(0, 0) = nx;
   if (horizontalBC == 1 || horizontalBC == 3) {
     mat_structure(0, 1) = 1;
@@ -648,12 +647,12 @@ void test_spmv_struct_3D(lno_t nx, lno_t ny, lno_t nz, lno_t horizontal1BC,
   typedef scalar_view_t x_vector_type;
   typedef scalar_view_t y_vector_type;
 
-  Kokkos::View<lno_t*, Kokkos::HostSpace> structure("Spmv Structure", 3);
+  Kokkos::View<lno_t *, Kokkos::HostSpace> structure("Spmv Structure", 3);
   structure(0) = nx;
   structure(1) = ny;
   structure(2) = nz;
-  Kokkos::View<lno_t * [3], Kokkos::HostSpace> mat_structure("Matrix Structure",
-                                                             3);
+  Kokkos::View<lno_t *[3], Kokkos::HostSpace> mat_structure("Matrix Structure",
+                                                            3);
   mat_structure(0, 0) = nx;
   if (horizontal1BC == 1 || horizontal1BC == 3) {
     mat_structure(0, 1) = 1;
@@ -717,13 +716,13 @@ void test_spmv_mv_struct_1D(lno_t nx, int numMV) {
   typedef
       typename KokkosSparse::CrsMatrix<scalar_t, lno_t, Device, void, size_type>
           crsMat_t;
-  typedef Kokkos::View<scalar_t**, layout, Device> x_multivector_type;
-  typedef Kokkos::View<scalar_t**, layout, Device> y_multivector_type;
+  typedef Kokkos::View<scalar_t **, layout, Device> x_multivector_type;
+  typedef Kokkos::View<scalar_t **, layout, Device> y_multivector_type;
 
-  Kokkos::View<lno_t*, Kokkos::HostSpace> structure("Spmv Structure", 1);
+  Kokkos::View<lno_t *, Kokkos::HostSpace> structure("Spmv Structure", 1);
   structure(0) = nx;
-  Kokkos::View<lno_t * [3], Kokkos::HostSpace> mat_structure("Matrix Structure",
-                                                             1);
+  Kokkos::View<lno_t *[3], Kokkos::HostSpace> mat_structure("Matrix Structure",
+                                                            1);
   mat_structure(0, 0) = nx;
   mat_structure(0, 1) = 1;
   mat_structure(0, 2) = 1;
@@ -831,9 +830,9 @@ void test_github_issue_101() {
     G = graph_type(colInds, rowOffsets);
   }
 
-  Kokkos::View<double*, DeviceType> x("x", numCols);
+  Kokkos::View<double *, DeviceType> x("x", numCols);
   Kokkos::deep_copy(x, static_cast<double>(1.0));
-  Kokkos::View<double*, DeviceType> y("y", numRows);
+  Kokkos::View<double *, DeviceType> y("y", numRows);
   auto y_h = Kokkos::create_mirror_view(y);  // we'll want this later
 
   // Pick some number large enough to exercise all unrolling cases.
@@ -841,9 +840,9 @@ void test_github_issue_101() {
   // vectors.  Include a little extra in case the implementers decide
   // to strip-mine that.
   constexpr int numVecs = 22;
-  Kokkos::View<double**, default_layout, DeviceType> X("X", numCols, numVecs);
+  Kokkos::View<double **, default_layout, DeviceType> X("X", numCols, numVecs);
   Kokkos::deep_copy(X, static_cast<double>(1.0));
-  Kokkos::View<double**, default_layout, DeviceType> Y("Y", numRows, numVecs);
+  Kokkos::View<double **, default_layout, DeviceType> Y("Y", numRows, numVecs);
   auto Y_h = Kokkos::create_mirror_view(Y);  // we'll want this later
 
   // Start with the easy test case, where the matrix and the vectors
@@ -944,92 +943,88 @@ void test_github_issue_101() {
     test_github_issue_101<DEVICE>();                                      \
   }
 
-
-template<typename CrsMat>
-CrsMat make_block_matrix (
-      typename CrsMat::ordinal_type &numRows,
-      typename CrsMat::ordinal_type &numCols,
-      typename CrsMat::ordinal_type &blockSize)
-  {
-
+template <typename CrsMat>
+CrsMat make_block_matrix(typename CrsMat::ordinal_type &numRows,
+                         typename CrsMat::ordinal_type &numCols,
+                         typename CrsMat::ordinal_type &blockSize) {
 #if 0
     typedef typename CrsMat::StaticCrsGraphType::row_map_type::non_const_type ptr_type ;
     typedef typename CrsMat::StaticCrsGraphType::entries_type::non_const_type ind_type ;
     typedef typename CrsMat::values_type::non_const_type val_type ;
     typedef typename CrsMat::size_type size_type;
 #endif
-    typedef typename CrsMat::ordinal_type lno_t;
-    typedef typename CrsMat::value_type scalar_t;
+  typedef typename CrsMat::ordinal_type lno_t;
+  typedef typename CrsMat::value_type scalar_t;
 
-    using Kokkos::HostSpace;
-    using Kokkos::MemoryUnmanaged;
-    using Kokkos::View;
-
+  using Kokkos::HostSpace;
+  using Kokkos::MemoryUnmanaged;
+  using Kokkos::View;
 
   Kokkos::Random_XorShift64<Kokkos::HostSpace> rand(13718);
 
   // fill outputs with random values
   // Kokkos::Random_XorShift64_Pool<Kokkos::HostSpace> rand_pool(13718);
-  // Kokkos::fill_random(hi_x, rand_pool, randomUpperBound<typename hi_scalar_view_t::value_type>(10));
+  // Kokkos::fill_random(hi_x, rand_pool, randomUpperBound<typename
+  // hi_scalar_view_t::value_type>(10));
 
-    std::vector<scalar_t> values;
-    std::vector<lno_t> rowmap;
-    std::vector<lno_t> entries;
+  std::vector<scalar_t> values;
+  std::vector<lno_t> rowmap;
+  std::vector<lno_t> entries;
 
-    // each row of blocks
-    for (lno_t bi = 0; bi < numRows; bi += blockSize) {
+  // each row of blocks
+  for (lno_t bi = 0; bi < numRows; bi += blockSize) {
+    // target number of blocks in the row
+    lno_t rowBlockCount = 3;
+    {
+      // cap the number of blocks in the row
+      lno_t maxBlocksInRow = numCols / blockSize;
+      rowBlockCount        = std::min(maxBlocksInRow, rowBlockCount);
+    }
 
-      // target number of blocks in the row
-      lno_t rowBlockCount = 3;
-      {
-        // cap the number of blocks in the row
-        lno_t maxBlocksInRow = numCols / blockSize;
-        rowBlockCount = std::min(maxBlocksInRow, rowBlockCount);
-      }
+    // where the blocks in this row of blocks start
+    // add that many blocks at random positions in the row
+    std::vector<lno_t> bjs;
+    for (int _ = 0; _ < rowBlockCount; ++_) {
+      bjs.push_back(rand.rand(numCols / blockSize) * blockSize);
+    }
 
-      // where the blocks in this row of blocks start
-      // add that many blocks at random positions in the row
-      std::vector<lno_t> bjs; 
-      for (int _ = 0; _ < rowBlockCount; ++_) {
-        bjs.push_back(rand.rand(numCols / blockSize) * blockSize);
-      }
+    // remove duplicates
+    {
+      std::sort(bjs.begin(), bjs.end());
+      auto it = std::unique(bjs.begin(), bjs.end());
+      bjs.resize(it - bjs.begin());
+    }
+    // std::cerr << "bi=" << bi << ":";
+    // for (auto e : bjs) {
+    //   std::cerr << " " << e;
+    // }
+    // std::cerr << "\n";
 
-      // remove duplicates
-      {
-        std::sort(bjs.begin(), bjs.end());
-        auto it = std::unique(bjs.begin(), bjs.end());
-        bjs.resize(it - bjs.begin());
-      }
-      // std::cerr << "bi=" << bi << ":";
-      // for (auto e : bjs) {
-      //   std::cerr << " " << e;
-      // }
-      // std::cerr << "\n";
+    for (lno_t i = bi; i < bi + blockSize; ++i) {
+      rowmap.push_back(entries.size());  // where this row starts
 
-      for (lno_t i = bi; i < bi + blockSize; ++i) {
-        rowmap.push_back(entries.size()); // where this row starts
-
-        // for each block 
-        for (size_t block = 0; block < bjs.size(); ++block) {
-          lno_t bj = bjs[block];
-          for (lno_t j = bj; j < bj + blockSize; ++j) {
-            entries.push_back(j);
-            values.push_back(rand.rand(10));
-            // values.push_back(1);
-          }
+      // for each block
+      for (size_t block = 0; block < bjs.size(); ++block) {
+        lno_t bj = bjs[block];
+        for (lno_t j = bj; j < bj + blockSize; ++j) {
+          entries.push_back(j);
+          values.push_back(rand.rand(10));
+          // values.push_back(1);
         }
       }
     }
-
-    while(rowmap.size() < numRows+1) {
-      rowmap.push_back(entries.size());
-    }
-
-    // std::cerr << "rowmap size = " << rowmap.size() << "\n";
-    // std::cerr << "values size = " << values.size() << "\n";
-
-    return CrsMat("", numRows, numCols, values.size(), values.data(), rowmap.data(), entries.data());
   }
+
+  while (rowmap.size() < numRows + 1) {
+    rowmap.push_back(entries.size());
+  }
+
+  // std::cerr << "rowmap size = " << rowmap.size() << "\n";
+  // std::cerr << "values size = " << values.size() << "\n";
+
+  return CrsMat("", numRows, numCols, values.size(), values.data(),
+                rowmap.data(), entries.data());
+}
 
 struct Coordinate {
   int i;
@@ -1056,32 +1051,27 @@ struct Entry {
 };
 
 // expand a pattern into a blocked CrsMatrix
-template<
-  typename Matrix,
-  std::enable_if_t<is_crs_matrix<Matrix>::value, bool> = true
->
-Matrix expand_matrix(
-  std::vector<Coordinate> pattern,
-  const int m, const int k,
-  const int blockSize,
-  const int seed = 0
-) {
-
+template <typename Matrix,
+          std::enable_if_t<is_crs_matrix<Matrix>::value, bool> = true>
+Matrix expand_matrix(std::vector<Coordinate> pattern, const int m, const int k,
+                     const int blockSize, const int seed = 0) {
   typedef typename Matrix::value_type Scalar;
   typedef typename Matrix::ordinal_type Ordinal;
   typedef typename Matrix::non_const_size_type Offset;
-  typedef Kokkos::View<const Offset*, Kokkos::HostSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>> UnmanagedRowmap;
-  typedef Kokkos::View<const Ordinal*, Kokkos::HostSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>> UnmanagedEntries;
-  typedef Kokkos::View<const Scalar*, Kokkos::HostSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>> UnmanagedValues;
+  typedef Kokkos::View<const Offset *, Kokkos::HostSpace,
+                       Kokkos::MemoryTraits<Kokkos::Unmanaged>>
+      UnmanagedRowmap;
+  typedef Kokkos::View<const Ordinal *, Kokkos::HostSpace,
+                       Kokkos::MemoryTraits<Kokkos::Unmanaged>>
+      UnmanagedEntries;
+  typedef Kokkos::View<const Scalar *, Kokkos::HostSpace,
+                       Kokkos::MemoryTraits<Kokkos::Unmanaged>>
+      UnmanagedValues;
 
   srand(seed);
 
-  auto gen_rand = []() -> double {
-    return rand() % 10;
-  };
-  auto gen_one = []() -> double {
-    return 1;
-  };
+  auto gen_rand = []() -> double { return rand() % 10; };
+  auto gen_one  = []() -> double { return 1; };
 
   // check rows and columns
   for (const Coordinate &c : pattern) {
@@ -1101,7 +1091,8 @@ Matrix expand_matrix(
   for (const Coordinate &c : pattern) {
     for (int i = 0; i < blockSize; ++i) {
       for (int j = 0; j < blockSize; ++j) {
-        entries.push_back(Entry(c.i * blockSize + i, c.j * blockSize + j, gen_rand()));
+        entries.push_back(
+            Entry(c.i * blockSize + i, c.j * blockSize + j, gen_rand()));
       }
     }
   }
@@ -1111,50 +1102,55 @@ Matrix expand_matrix(
   std::vector<Offset> rowMap;
   std::vector<Ordinal> colInd;
   std::vector<Scalar> val;
-  
+
   for (Entry &e : entries) {
-      while(rowMap.size() < size_t(e.c.i+1)) { // catch empty rows
-          rowMap.push_back(colInd.size());
-      }
-      colInd.push_back(e.c.j);
-      val.push_back(e.e);
-  }
-    // possibly empty rows at end of matrix
-  while(rowMap.size() <= size_t(m * blockSize)) {
+    while (rowMap.size() < size_t(e.c.i + 1)) {  // catch empty rows
       rowMap.push_back(colInd.size());
+    }
+    colInd.push_back(e.c.j);
+    val.push_back(e.e);
+  }
+  // possibly empty rows at end of matrix
+  while (rowMap.size() <= size_t(m * blockSize)) {
+    rowMap.push_back(colInd.size());
   }
 
   typename Matrix::row_map_type::non_const_type sparseRowMap("", rowMap.size());
-  Kokkos::deep_copy(sparseRowMap, UnmanagedRowmap(rowMap.data(), rowMap.size()));
+  Kokkos::deep_copy(sparseRowMap,
+                    UnmanagedRowmap(rowMap.data(), rowMap.size()));
   typename Matrix::index_type::non_const_type sparseCols("", colInd.size());
   Kokkos::deep_copy(sparseCols, UnmanagedEntries(colInd.data(), colInd.size()));
   typename Matrix::values_type::non_const_type sparseVals("", val.size());
   Kokkos::deep_copy(sparseVals, UnmanagedValues(val.data(), val.size()));
 
-  Matrix mat("crs", m*blockSize, k*blockSize, sparseVals.size(), sparseVals, sparseRowMap, sparseCols);
+  Matrix mat("crs", m * blockSize, k * blockSize, sparseVals.size(), sparseVals,
+             sparseRowMap, sparseCols);
   return mat;
 }
 
-template<
-  typename Matrix,
-  std::enable_if_t<KokkosSparse::Experimental::is_bsr_matrix<Matrix>::value, bool> = true
->
-Matrix expand_matrix(std::vector<Coordinate> pattern, const int m, const int k, const int blockSize, const int seed = 0) {
+template <
+    typename Matrix,
+    std::enable_if_t<KokkosSparse::Experimental::is_bsr_matrix<Matrix>::value,
+                     bool> = true>
+Matrix expand_matrix(std::vector<Coordinate> pattern, const int m, const int k,
+                     const int blockSize, const int seed = 0) {
   typedef typename Matrix::value_type Scalar;
   typedef typename Matrix::ordinal_type Ordinal;
   typedef typename Matrix::non_const_size_type Offset;
-  typedef Kokkos::View<const Offset*, Kokkos::HostSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>> UnmanagedRowmap;
-  typedef Kokkos::View<const Ordinal*, Kokkos::HostSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>> UnmanagedEntries;
-  typedef Kokkos::View<const Scalar*, Kokkos::HostSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>> UnmanagedValues;
+  typedef Kokkos::View<const Offset *, Kokkos::HostSpace,
+                       Kokkos::MemoryTraits<Kokkos::Unmanaged>>
+      UnmanagedRowmap;
+  typedef Kokkos::View<const Ordinal *, Kokkos::HostSpace,
+                       Kokkos::MemoryTraits<Kokkos::Unmanaged>>
+      UnmanagedEntries;
+  typedef Kokkos::View<const Scalar *, Kokkos::HostSpace,
+                       Kokkos::MemoryTraits<Kokkos::Unmanaged>>
+      UnmanagedValues;
 
   srand(seed);
 
-  auto gen_rand = []() -> double {
-    return rand() % 10;
-  };
-  auto gen_one = []() -> double {
-    return 1;
-  };
+  auto gen_rand = []() -> double { return rand() % 10; };
+  auto gen_one  = []() -> double { return 1; };
 
   // determine the number of rows and columns
   // check rows and columns
@@ -1185,31 +1181,31 @@ Matrix expand_matrix(std::vector<Coordinate> pattern, const int m, const int k, 
   */
   std::vector<Offset> rowMap;
   std::vector<Ordinal> colInd;
-  
+
   for (Coordinate &e : pattern) {
-      while(rowMap.size() < size_t(e.i+1)) { // catch empty rows
-          rowMap.push_back(colInd.size());
-      }
-      colInd.push_back(e.j);
+    while (rowMap.size() < size_t(e.i + 1)) {  // catch empty rows
+      rowMap.push_back(colInd.size());
+    }
+    colInd.push_back(e.j);
   }
   // possibly empty rows at end of matrix
-  while(rowMap.size() <= size_t(m)) {
-      rowMap.push_back(colInd.size());
+  while (rowMap.size() <= size_t(m)) {
+    rowMap.push_back(colInd.size());
   }
 
   typename Matrix::row_map_type::non_const_type sparseRowMap("", rowMap.size());
-  Kokkos::deep_copy(sparseRowMap, UnmanagedRowmap(rowMap.data(), rowMap.size()));
+  Kokkos::deep_copy(sparseRowMap,
+                    UnmanagedRowmap(rowMap.data(), rowMap.size()));
   typename Matrix::index_type::non_const_type sparseCols("", colInd.size());
   Kokkos::deep_copy(sparseCols, UnmanagedEntries(colInd.data(), colInd.size()));
   typename Matrix::values_type::non_const_type sparseVals("", val.size());
   Kokkos::deep_copy(sparseVals, UnmanagedValues(val.data(), val.size()));
   Kokkos::fence();
 
-  Matrix mat("bsr", m, k, sparseVals.size(), sparseVals, sparseRowMap, sparseCols, blockSize);
+  Matrix mat("bsr", m, k, sparseVals.size(), sparseVals, sparseRowMap,
+             sparseCols, blockSize);
   return mat;
 }
-
-
 
 /* a_scalar_t: the matrix type
    x_scalar_t: the x-vector type
@@ -1225,40 +1221,54 @@ Matrix expand_matrix(std::vector<Coordinate> pattern, const int m, const int k, 
    The controls are used in the BsrMatrix SpMV invocation
 
 */
-template <typename a_scalar_t, typename x_scalar_t, typename y_scalar_t, typename lno_t, typename size_type, typename Layout, typename Device>
-void test_spmv_bsrmatrix_controls_pattern(const KokkosKernels::Experimental::Controls &controls, const std::vector<Coordinate> &pattern, const int m, const int n, lno_t blockSize, lno_t k, y_scalar_t alpha, y_scalar_t beta) {
+template <typename a_scalar_t, typename x_scalar_t, typename y_scalar_t,
+          typename lno_t, typename size_type, typename Layout, typename Device>
+void test_spmv_bsrmatrix_controls_pattern(
+    const KokkosKernels::Experimental::Controls &controls,
+    const std::vector<Coordinate> &pattern, const int m, const int n,
+    lno_t blockSize, lno_t k, y_scalar_t alpha, y_scalar_t beta) {
   // get the widest passed scalar type
-  typedef typename std::conditional<sizeof(a_scalar_t) >= sizeof(x_scalar_t), a_scalar_t, x_scalar_t>::type wider_t;
-  typedef typename std::conditional<sizeof(wider_t) >= sizeof(y_scalar_t), wider_t, y_scalar_t>::type widest_t;
+  typedef typename std::conditional<sizeof(a_scalar_t) >= sizeof(x_scalar_t),
+                                    a_scalar_t, x_scalar_t>::type wider_t;
+  typedef typename std::conditional<sizeof(wider_t) >= sizeof(y_scalar_t),
+                                    wider_t, y_scalar_t>::type widest_t;
 
-  typedef typename KokkosSparse::CrsMatrix<a_scalar_t, lno_t, Device, void, size_type> crs_mat_t;
-  typedef typename KokkosSparse::Experimental::BsrMatrix<a_scalar_t, lno_t, Device, void, size_type> bsr_mat_t;
-  typedef Kokkos::View<x_scalar_t**, Layout, Device> x_view_t;
-  typedef Kokkos::View<y_scalar_t**, Layout, Device> y_view_t;
+  typedef typename KokkosSparse::CrsMatrix<a_scalar_t, lno_t, Device, void,
+                                           size_type>
+      crs_mat_t;
+  typedef
+      typename KokkosSparse::Experimental::BsrMatrix<a_scalar_t, lno_t, Device,
+                                                     void, size_type>
+          bsr_mat_t;
+  typedef Kokkos::View<x_scalar_t **, Layout, Device> x_view_t;
+  typedef Kokkos::View<y_scalar_t **, Layout, Device> y_view_t;
 
   using DeviceRangePolicy = Kokkos::RangePolicy<Device>;
 
   crs_mat_t crs = expand_matrix<crs_mat_t>(pattern, m, n, blockSize);
   bsr_mat_t bsr = expand_matrix<bsr_mat_t>(pattern, m, n, blockSize);
 
-  // only tue if the original matrix is a multiple of block size, and all blocks are dense
+  // only tue if the original matrix is a multiple of block size, and all blocks
+  // are dense
   EXPECT_TRUE(bsr.nnz() * bsr.blockDim() * bsr.blockDim() == crs.nnz());
   EXPECT_TRUE(bsr.numRows() * bsr.blockDim() == crs.numRows());
   EXPECT_TRUE(bsr.numCols() * bsr.blockDim() == crs.numCols());
 
   // expected operands
-  x_view_t exp_x ("exp_x", n * blockSize, k);
-  y_view_t exp_y ("exp_y", m * blockSize, k);
+  x_view_t exp_x("exp_x", n * blockSize, k);
+  y_view_t exp_y("exp_y", m * blockSize, k);
 
   // test operands
   y_view_t test_y("test_y", m * blockSize, k);
   x_view_t test_x("test_x", n * blockSize, k);
 
-
   // fill expected with random values
-  Kokkos::Random_XorShift64_Pool<typename Device::execution_space> rand_pool(13718);
-  Kokkos::fill_random(exp_x, rand_pool, randomUpperBound<typename x_view_t::value_type>(10));
-  Kokkos::fill_random(exp_y, rand_pool, randomUpperBound<typename y_view_t::value_type>(10));
+  Kokkos::Random_XorShift64_Pool<typename Device::execution_space> rand_pool(
+      13718);
+  Kokkos::fill_random(exp_x, rand_pool,
+                      randomUpperBound<typename x_view_t::value_type>(10));
+  Kokkos::fill_random(exp_y, rand_pool,
+                      randomUpperBound<typename y_view_t::value_type>(10));
 
 #if 0
   // fill inputs with 1, for help debugging
@@ -1286,38 +1296,44 @@ void test_spmv_bsrmatrix_controls_pattern(const KokkosKernels::Experimental::Con
 
   // test each vector
   for (lno_t ki = 0; ki < k; ++ki) {
-    auto exp_y_i =  Kokkos::subview(exp_y,  Kokkos::ALL(), ki);
+    auto exp_y_i  = Kokkos::subview(exp_y, Kokkos::ALL(), ki);
     auto test_y_i = Kokkos::subview(test_y, Kokkos::ALL(), ki);
 
     // count errors
     int num_errors = 0;
-    double eps = Kokkos::ArithTraits<kokkos_half>::prec();
+    double eps     = Kokkos::ArithTraits<kokkos_half>::prec();
     Kokkos::parallel_reduce("KokkosSparse::Test::spmv_tc",
-                            DeviceRangePolicy(0,exp_y_i.extent(0)),
-                            Test::fSPMV<decltype(exp_y_i), decltype(test_y_i)>(exp_y_i, test_y_i, eps),
+                            DeviceRangePolicy(0, exp_y_i.extent(0)),
+                            Test::fSPMV<decltype(exp_y_i), decltype(test_y_i)>(
+                                exp_y_i, test_y_i, eps),
                             num_errors);
     // explicit cast to double since no overload for half::operator<<
-    if(num_errors>0)
-      std::cout << "KokkosSparse::Test::spmv_tc: "
-       << num_errors << " errors of "
-       << exp_y_i.extent_int(0)
-       << " for mv " 
-       << ki << " (alpha=" 
-       << double(Kokkos::ArithTraits<y_scalar_t>::abs(alpha)) << ", beta=" 
-       << double(Kokkos::ArithTraits<y_scalar_t>::abs(beta)) << ", mode = N" << ")\n";
-    EXPECT_TRUE(num_errors==0);
+    if (num_errors > 0)
+      std::cout << "KokkosSparse::Test::spmv_tc: " << num_errors
+                << " errors of " << exp_y_i.extent_int(0) << " for mv " << ki
+                << " (alpha="
+                << double(Kokkos::ArithTraits<y_scalar_t>::abs(alpha))
+                << ", beta="
+                << double(Kokkos::ArithTraits<y_scalar_t>::abs(beta))
+                << ", mode = N"
+                << ")\n";
+    EXPECT_TRUE(num_errors == 0);
   }
 }
 
 /* test a particular pattern with all supported controls
-*/
-template <typename a_scalar_t, typename x_scalar_t, typename y_scalar_t, typename lno_t, typename size_type, typename Layout, typename Device>
-void test_spmv_bsrmatrix_pattern(const std::vector<Coordinate> &pattern, const int m, const int n, lno_t blockSize, lno_t k, y_scalar_t alpha, y_scalar_t beta) {
-
+ */
+template <typename a_scalar_t, typename x_scalar_t, typename y_scalar_t,
+          typename lno_t, typename size_type, typename Layout, typename Device>
+void test_spmv_bsrmatrix_pattern(const std::vector<Coordinate> &pattern,
+                                 const int m, const int n, lno_t blockSize,
+                                 lno_t k, y_scalar_t alpha, y_scalar_t beta) {
   {
     KokkosKernels::Experimental::Controls controls;
     controls.setParameter("algorithm", "experimental_bsr_tc");
-    test_spmv_bsrmatrix_controls_pattern<a_scalar_t, x_scalar_t, y_scalar_t, lno_t, size_type, Layout, Device>(controls, pattern, m, n, blockSize, k, alpha, beta);
+    test_spmv_bsrmatrix_controls_pattern<a_scalar_t, x_scalar_t, y_scalar_t,
+                                         lno_t, size_type, Layout, Device>(
+        controls, pattern, m, n, blockSize, k, alpha, beta);
   }
 
 #if defined(KOKKOS_ARCH_AMPERE)
@@ -1325,57 +1341,70 @@ void test_spmv_bsrmatrix_pattern(const std::vector<Coordinate> &pattern, const i
     KokkosKernels::Experimental::Controls controls;
     controls.setParameter("algorithm", "experimental_bsr_tc");
     controls.setParameter("precision", "double");
-    test_spmv_bsrmatrix_controls_pattern<a_scalar_t, x_scalar_t, y_scalar_t, lno_t, size_type, Layout, Device>(controls, pattern, m, n, blockSize, k, alpha, beta);
+    test_spmv_bsrmatrix_controls_pattern<a_scalar_t, x_scalar_t, y_scalar_t,
+                                         lno_t, size_type, Layout, Device>(
+        controls, pattern, m, n, blockSize, k, alpha, beta);
   }
 #endif
 }
 
 /* test a bunch of different matrices
-*/
-template <typename a_scalar_t, typename x_scalar_t, typename y_scalar_t, typename lno_t, typename size_type, typename Layout, typename Device>
-void test_spmv_bsrmatrix(lno_t blockSize, lno_t k, y_scalar_t alpha, y_scalar_t beta) {
-
+ */
+template <typename a_scalar_t, typename x_scalar_t, typename y_scalar_t,
+          typename lno_t, typename size_type, typename Layout, typename Device>
+void test_spmv_bsrmatrix(lno_t blockSize, lno_t k, y_scalar_t alpha,
+                         y_scalar_t beta) {
   KokkosKernels::Experimental::Controls controls;
   controls.setParameter("algorithm", "experimental_bsr_tc");
 
   // 1x1 full
   {
-    int m = 1;
-    int n = 1;
-    std::vector<Coordinate> pattern = {Coordinate(0,0)};
-    test_spmv_bsrmatrix_pattern<a_scalar_t, x_scalar_t, y_scalar_t, lno_t, size_type, Layout, Device>(pattern, m, n, blockSize, k, alpha, beta);
+    int m                           = 1;
+    int n                           = 1;
+    std::vector<Coordinate> pattern = {Coordinate(0, 0)};
+    test_spmv_bsrmatrix_pattern<a_scalar_t, x_scalar_t, y_scalar_t, lno_t,
+                                size_type, Layout, Device>(
+        pattern, m, n, blockSize, k, alpha, beta);
   }
 
   // 1x1 empty
   {
-    int m = 1;
-    int n = 1;
+    int m                           = 1;
+    int n                           = 1;
     std::vector<Coordinate> pattern = {};
-    test_spmv_bsrmatrix_pattern<a_scalar_t, x_scalar_t, y_scalar_t, lno_t, size_type, Layout, Device>(pattern, m, n, blockSize, k, alpha, beta);
+    test_spmv_bsrmatrix_pattern<a_scalar_t, x_scalar_t, y_scalar_t, lno_t,
+                                size_type, Layout, Device>(
+        pattern, m, n, blockSize, k, alpha, beta);
   }
 
   // 2x2 top-left
   {
-    int m = 2;
-    int n = 2;
-    std::vector<Coordinate> pattern = {Coordinate(0,0)};
-    test_spmv_bsrmatrix_pattern<a_scalar_t, x_scalar_t, y_scalar_t, lno_t, size_type, Layout, Device>(pattern, m, n, blockSize, k, alpha, beta);
+    int m                           = 2;
+    int n                           = 2;
+    std::vector<Coordinate> pattern = {Coordinate(0, 0)};
+    test_spmv_bsrmatrix_pattern<a_scalar_t, x_scalar_t, y_scalar_t, lno_t,
+                                size_type, Layout, Device>(
+        pattern, m, n, blockSize, k, alpha, beta);
   }
 
   // 2x2 bottom right
   {
-    int m = 2;
-    int n = 2;
-    std::vector<Coordinate> pattern = {Coordinate(1,1)};
-    test_spmv_bsrmatrix_pattern<a_scalar_t, x_scalar_t, y_scalar_t, lno_t, size_type, Layout, Device>(pattern, m, n, blockSize, k, alpha, beta);
+    int m                           = 2;
+    int n                           = 2;
+    std::vector<Coordinate> pattern = {Coordinate(1, 1)};
+    test_spmv_bsrmatrix_pattern<a_scalar_t, x_scalar_t, y_scalar_t, lno_t,
+                                size_type, Layout, Device>(
+        pattern, m, n, blockSize, k, alpha, beta);
   }
 
   // 2x3 bottom right
   {
-    int m = 2;
-    int n = 3;
-    std::vector<Coordinate> pattern = {Coordinate(1,2)};
-    test_spmv_bsrmatrix_pattern<a_scalar_t, x_scalar_t, y_scalar_t, lno_t, size_type, Layout, Device>(pattern, m, n, blockSize, k, alpha, beta);
+    int m                           = 2;
+    int n                           = 3;
+    std::vector<Coordinate> pattern = {Coordinate(1, 2)};
+    test_spmv_bsrmatrix_pattern<a_scalar_t, x_scalar_t, y_scalar_t, lno_t,
+                                size_type, Layout, Device>(
+        pattern, m, n, blockSize, k, alpha, beta);
   }
 
   // 2x10 long bottom row
@@ -1386,7 +1415,9 @@ void test_spmv_bsrmatrix(lno_t blockSize, lno_t k, y_scalar_t alpha, y_scalar_t 
     for (int j = 0; j < n; ++j) {
       pattern.push_back(Coordinate(1, j));
     }
-    test_spmv_bsrmatrix_pattern<a_scalar_t, x_scalar_t, y_scalar_t, lno_t, size_type, Layout, Device>(pattern, m, n, blockSize, k, alpha, beta);
+    test_spmv_bsrmatrix_pattern<a_scalar_t, x_scalar_t, y_scalar_t, lno_t,
+                                size_type, Layout, Device>(
+        pattern, m, n, blockSize, k, alpha, beta);
   }
 
   // 10x10 column 1 + diagonal
@@ -1400,22 +1431,29 @@ void test_spmv_bsrmatrix(lno_t blockSize, lno_t k, y_scalar_t alpha, y_scalar_t 
         pattern.push_back(Coordinate(i, i));
       }
     }
-    test_spmv_bsrmatrix_pattern<a_scalar_t, x_scalar_t, y_scalar_t, lno_t, size_type, Layout, Device>(pattern, m, n, blockSize, k, alpha, beta);
+    test_spmv_bsrmatrix_pattern<a_scalar_t, x_scalar_t, y_scalar_t, lno_t,
+                                size_type, Layout, Device>(
+        pattern, m, n, blockSize, k, alpha, beta);
   }
-
 }
 
-
-#define EXECUTE_TEST(SCALAR, ORDINAL, OFFSET, DEVICE) \
-TEST_F( TestCategory,sparse ## _ ## spmv ## _ ## SCALAR ## _ ## ORDINAL ## _ ## OFFSET ## _ ## DEVICE ) { \
-  test_spmv<SCALAR,ORDINAL,OFFSET,DEVICE> (1000, 1000 * 30, 200, 10, true); \
-  test_spmv<SCALAR,ORDINAL,OFFSET,DEVICE> (1000, 1000 * 30, 100, 10, true); \
-  test_spmv<SCALAR,ORDINAL,OFFSET,DEVICE> (1000, 1000 * 20, 100, 5, true); \
-  test_spmv<SCALAR,ORDINAL,OFFSET,DEVICE> (50000, 50000 * 30, 200, 10, false); \
-  test_spmv<SCALAR,ORDINAL,OFFSET,DEVICE> (50000, 50000 * 30, 100, 10, false); \
-  test_spmv<SCALAR,ORDINAL,OFFSET,DEVICE> (10000, 10000 * 20, 100, 5, false); \
-  test_spmv_controls<SCALAR,ORDINAL,OFFSET,DEVICE> (10000, 10000 * 20, 100, 5); \
-}
+#define EXECUTE_TEST(SCALAR, ORDINAL, OFFSET, DEVICE)                          \
+  TEST_F(TestCategory,                                                         \
+         sparse##_##spmv##_##SCALAR##_##ORDINAL##_##OFFSET##_##DEVICE) {       \
+    test_spmv<SCALAR, ORDINAL, OFFSET, DEVICE>(1000, 1000 * 30, 200, 10,       \
+                                               true);                          \
+    test_spmv<SCALAR, ORDINAL, OFFSET, DEVICE>(1000, 1000 * 30, 100, 10,       \
+                                               true);                          \
+    test_spmv<SCALAR, ORDINAL, OFFSET, DEVICE>(1000, 1000 * 20, 100, 5, true); \
+    test_spmv<SCALAR, ORDINAL, OFFSET, DEVICE>(50000, 50000 * 30, 200, 10,     \
+                                               false);                         \
+    test_spmv<SCALAR, ORDINAL, OFFSET, DEVICE>(50000, 50000 * 30, 100, 10,     \
+                                               false);                         \
+    test_spmv<SCALAR, ORDINAL, OFFSET, DEVICE>(10000, 10000 * 20, 100, 5,      \
+                                               false);                         \
+    test_spmv_controls<SCALAR, ORDINAL, OFFSET, DEVICE>(10000, 10000 * 20,     \
+                                                        100, 5);               \
+  }
 
 #define EXECUTE_TEST_MV(SCALAR, ORDINAL, OFFSET, LAYOUT, DEVICE)                    \
   TEST_F(                                                                           \
@@ -1465,84 +1503,124 @@ TEST_F( TestCategory,sparse ## _ ## spmv ## _ ## SCALAR ## _ ## ORDINAL ## _ ## 
 /* Tensor Core SpMV
   blocksize, k, alpha, beta
 */
-#define EXECUTE_TEST_TC(ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET, LAYOUT, DEVICE) \
-TEST_F( TestCategory,sparse ## _ ## spmv_tensor_core ## _ ## ASCALAR ## _ ## XSCALAR ## _ ## YSCALAR ## _ ## ORDINAL ## _ ## OFFSET ## _ ## LAYOUT ## _ ## DEVICE) { \
-  /* easy case with different alphas and betas*/ \
-  test_spmv_bsrmatrix<ASCALAR,XSCALAR,YSCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (16, 16, 0, 0); \
-  test_spmv_bsrmatrix<ASCALAR,XSCALAR,YSCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (16, 16, 1, 0); \
-  test_spmv_bsrmatrix<ASCALAR,XSCALAR,YSCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (16, 16, 0, 1); \
-  test_spmv_bsrmatrix<ASCALAR,XSCALAR,YSCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (16, 16, 1, 1); \
-  /* easy case with a real alpha/beta */ \
-  test_spmv_bsrmatrix<ASCALAR,XSCALAR,YSCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (16, 16, 1.25, -2.73); \
-  /* smaller block size with k < and > block size*/ \
-  test_spmv_bsrmatrix<ASCALAR,XSCALAR,YSCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (7, 6, 1.25, -2.73); \
-  test_spmv_bsrmatrix<ASCALAR,XSCALAR,YSCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (7, 7, 1.25, -2.73); \
-  test_spmv_bsrmatrix<ASCALAR,XSCALAR,YSCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (7, 8, 1.25, -2.73); \
-  /* smaller block size with k < and > block size*/ \
-  test_spmv_bsrmatrix<ASCALAR,XSCALAR,YSCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (15, 14, 1.25, -2.73); \
-  test_spmv_bsrmatrix<ASCALAR,XSCALAR,YSCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (15, 15, 1.25, -2.73); \
-  test_spmv_bsrmatrix<ASCALAR,XSCALAR,YSCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (15, 16, 1.25, -2.73); \
-  /* larger block size with k < and > block size*/ \
-  test_spmv_bsrmatrix<ASCALAR,XSCALAR,YSCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (17, 16, 1.25, -2.73); \
-  test_spmv_bsrmatrix<ASCALAR,XSCALAR,YSCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (17, 17, 1.25, -2.73); \
-  test_spmv_bsrmatrix<ASCALAR,XSCALAR,YSCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (17, 18, 1.25, -2.73); \
-  /* larger block size with k < and > block size*/ \
-  test_spmv_bsrmatrix<ASCALAR,XSCALAR,YSCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (32, 31, 1.25, -2.73); \
-  test_spmv_bsrmatrix<ASCALAR,XSCALAR,YSCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (32, 32, 1.25, -2.73); \
-  test_spmv_bsrmatrix<ASCALAR,XSCALAR,YSCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (32, 33, 1.25, -2.73); \
-  /* more than one team per block*/ \
-  test_spmv_bsrmatrix<ASCALAR,XSCALAR,YSCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (33, 13, 1.25, -2.73); \
-  test_spmv_bsrmatrix<ASCALAR,XSCALAR,YSCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (33, 27, 1.25, -2.73); \
-  test_spmv_bsrmatrix<ASCALAR,XSCALAR,YSCALAR,ORDINAL,OFFSET,Kokkos::LAYOUT,DEVICE> (33, 41, 1.25, -2.73); \
-}
+#define EXECUTE_TEST_TC(ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET, LAYOUT,                                           \
+                        DEVICE)                                                                                       \
+  TEST_F(                                                                                                             \
+      TestCategory,                                                                                                   \
+      sparse##_##spmv_tensor_core##_##ASCALAR##_##XSCALAR##_##YSCALAR##_##ORDINAL##_##OFFSET##_##LAYOUT##_##DEVICE) { \
+    /* easy case with different alphas and betas*/                                                                    \
+    test_spmv_bsrmatrix<ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET,                                                   \
+                        Kokkos::LAYOUT, DEVICE>(16, 16, 0, 0);                                                        \
+    test_spmv_bsrmatrix<ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET,                                                   \
+                        Kokkos::LAYOUT, DEVICE>(16, 16, 1, 0);                                                        \
+    test_spmv_bsrmatrix<ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET,                                                   \
+                        Kokkos::LAYOUT, DEVICE>(16, 16, 0, 1);                                                        \
+    test_spmv_bsrmatrix<ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET,                                                   \
+                        Kokkos::LAYOUT, DEVICE>(16, 16, 1, 1);                                                        \
+    /* easy case with a real alpha/beta */                                                                            \
+    test_spmv_bsrmatrix<ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET,                                                   \
+                        Kokkos::LAYOUT, DEVICE>(16, 16, 1.25, -2.73);                                                 \
+    /* smaller block size with k < and > block size*/                                                                 \
+    test_spmv_bsrmatrix<ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET,                                                   \
+                        Kokkos::LAYOUT, DEVICE>(7, 6, 1.25, -2.73);                                                   \
+    test_spmv_bsrmatrix<ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET,                                                   \
+                        Kokkos::LAYOUT, DEVICE>(7, 7, 1.25, -2.73);                                                   \
+    test_spmv_bsrmatrix<ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET,                                                   \
+                        Kokkos::LAYOUT, DEVICE>(7, 8, 1.25, -2.73);                                                   \
+    /* smaller block size with k < and > block size*/                                                                 \
+    test_spmv_bsrmatrix<ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET,                                                   \
+                        Kokkos::LAYOUT, DEVICE>(15, 14, 1.25, -2.73);                                                 \
+    test_spmv_bsrmatrix<ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET,                                                   \
+                        Kokkos::LAYOUT, DEVICE>(15, 15, 1.25, -2.73);                                                 \
+    test_spmv_bsrmatrix<ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET,                                                   \
+                        Kokkos::LAYOUT, DEVICE>(15, 16, 1.25, -2.73);                                                 \
+    /* larger block size with k < and > block size*/                                                                  \
+    test_spmv_bsrmatrix<ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET,                                                   \
+                        Kokkos::LAYOUT, DEVICE>(17, 16, 1.25, -2.73);                                                 \
+    test_spmv_bsrmatrix<ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET,                                                   \
+                        Kokkos::LAYOUT, DEVICE>(17, 17, 1.25, -2.73);                                                 \
+    test_spmv_bsrmatrix<ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET,                                                   \
+                        Kokkos::LAYOUT, DEVICE>(17, 18, 1.25, -2.73);                                                 \
+    /* larger block size with k < and > block size*/                                                                  \
+    test_spmv_bsrmatrix<ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET,                                                   \
+                        Kokkos::LAYOUT, DEVICE>(32, 31, 1.25, -2.73);                                                 \
+    test_spmv_bsrmatrix<ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET,                                                   \
+                        Kokkos::LAYOUT, DEVICE>(32, 32, 1.25, -2.73);                                                 \
+    test_spmv_bsrmatrix<ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET,                                                   \
+                        Kokkos::LAYOUT, DEVICE>(32, 33, 1.25, -2.73);                                                 \
+    /* more than one team per block*/                                                                                 \
+    test_spmv_bsrmatrix<ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET,                                                   \
+                        Kokkos::LAYOUT, DEVICE>(33, 13, 1.25, -2.73);                                                 \
+    test_spmv_bsrmatrix<ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET,                                                   \
+                        Kokkos::LAYOUT, DEVICE>(33, 27, 1.25, -2.73);                                                 \
+    test_spmv_bsrmatrix<ASCALAR, XSCALAR, YSCALAR, ORDINAL, OFFSET,                                                   \
+                        Kokkos::LAYOUT, DEVICE>(33, 41, 1.25, -2.73);                                                 \
+  }
 
 // minimal conditions for tensor core SpMV test
 // BsrMatrix spmv is only supported on CUDA for the time being
-#if defined(KOKKOS_ENABLE_CUDA) && defined(TEST_CUDA_SPARSE_CPP) \
-    && (defined(KOKKOS_ARCH_VOLTA) || defined(KOKKOS_ARCH_AMPERE))
+#if defined(KOKKOS_ENABLE_CUDA) && defined(TEST_CUDA_SPARSE_CPP) && \
+    (defined(KOKKOS_ARCH_VOLTA) || defined(KOKKOS_ARCH_AMPERE))
 
-#if defined(KOKKOSKERNELS_INST_ORDINAL_INT) && defined(KOKKOSKERNELS_INST_OFFSET_SIZE_T) \
- && defined(KOKKOSKERNELS_INST_FLOAT) && defined(KOKKOSKERNELS_INST_LAYOUTLEFT) \
- || (!defined(KOKKOSKERNELS_ETI_ONLY) && !defined(KOKKOSKERNELS_IMPL_CHECK_ETI_CALLS))
-  // EXECUTE_TEST_TC(kokkos_half,  kokkos_half, float,   int, size_t, LayoutLeft,  TestExecSpace)
-  // EXECUTE_TEST_TC(kokkos_half,  float,       float,   int, size_t, LayoutLeft,  TestExecSpace)
-  // EXECUTE_TEST_TC(float,        kokkos_half, float,   int, size_t, LayoutLeft,  TestExecSpace)
-  EXECUTE_TEST_TC(float,        float,       float,   int, size_t, LayoutLeft,  TestExecSpace)
+#if defined(KOKKOSKERNELS_INST_ORDINAL_INT) &&       \
+        defined(KOKKOSKERNELS_INST_OFFSET_SIZE_T) && \
+        defined(KOKKOSKERNELS_INST_FLOAT) &&         \
+        defined(KOKKOSKERNELS_INST_LAYOUTLEFT) ||    \
+    (!defined(KOKKOSKERNELS_ETI_ONLY) &&             \
+     !defined(KOKKOSKERNELS_IMPL_CHECK_ETI_CALLS))
+// EXECUTE_TEST_TC(kokkos_half,  kokkos_half, float,   int, size_t, LayoutLeft,
+// TestExecSpace) EXECUTE_TEST_TC(kokkos_half,  float,       float,   int,
+// size_t, LayoutLeft,  TestExecSpace) EXECUTE_TEST_TC(float, kokkos_half,
+// float,   int, size_t, LayoutLeft,  TestExecSpace)
+EXECUTE_TEST_TC(float, float, float, int, size_t, LayoutLeft, TestExecSpace)
 #endif
 
-#if defined(KOKKOSKERNELS_INST_ORDINAL_INT) && defined(KOKKOSKERNELS_INST_OFFSET_SIZE_T) \
- && defined(KOKKOSKERNELS_INST_DOUBLE) && defined(KOKKOSKERNELS_INST_LAYOUTLEFT) \
- || (!defined(KOKKOSKERNELS_ETI_ONLY) && !defined(KOKKOSKERNELS_IMPL_CHECK_ETI_CALLS))
-  // EXECUTE_TEST_TC(kokkos_half,  kokkos_half, double,   int, size_t, LayoutLeft,  TestExecSpace)
-  // EXECUTE_TEST_TC(kokkos_half,  double,       double,   int, size_t, LayoutLeft,  TestExecSpace)
-  // EXECUTE_TEST_TC(double,        kokkos_half, double,   int, size_t, LayoutLeft,  TestExecSpace)
-  EXECUTE_TEST_TC(double,        double,       double,   int, size_t, LayoutLeft,  TestExecSpace)
+#if defined(KOKKOSKERNELS_INST_ORDINAL_INT) &&       \
+        defined(KOKKOSKERNELS_INST_OFFSET_SIZE_T) && \
+        defined(KOKKOSKERNELS_INST_DOUBLE) &&        \
+        defined(KOKKOSKERNELS_INST_LAYOUTLEFT) ||    \
+    (!defined(KOKKOSKERNELS_ETI_ONLY) &&             \
+     !defined(KOKKOSKERNELS_IMPL_CHECK_ETI_CALLS))
+// EXECUTE_TEST_TC(kokkos_half,  kokkos_half, double,   int, size_t, LayoutLeft,
+// TestExecSpace) EXECUTE_TEST_TC(kokkos_half,  double,       double,   int,
+// size_t, LayoutLeft,  TestExecSpace) EXECUTE_TEST_TC(double, kokkos_half,
+// double,   int, size_t, LayoutLeft,  TestExecSpace)
+EXECUTE_TEST_TC(double, double, double, int, size_t, LayoutLeft, TestExecSpace)
 #endif
 
-#if defined(KOKKOSKERNELS_INST_ORDINAL_INT) && defined(KOKKOSKERNELS_INST_OFFSET_SIZE_T) \
- && defined(KOKKOSKERNELS_INST_FLOAT) && defined(KOKKOSKERNELS_INST_LAYOUTRIGHT) \
- || (!defined(KOKKOSKERNELS_ETI_ONLY) && !defined(KOKKOSKERNELS_IMPL_CHECK_ETI_CALLS))
-  // EXECUTE_TEST_TC(kokkos_half,  kokkos_half, float,   int, size_t, LayoutRight,  TestExecSpace)
-  // EXECUTE_TEST_TC(kokkos_half,  float,       float,   int, size_t, LayoutRight,  TestExecSpace)
-  // EXECUTE_TEST_TC(float,        kokkos_half, float,   int, size_t, LayoutRight,  TestExecSpace)
-  EXECUTE_TEST_TC(float,        float,       float,   int, size_t, LayoutRight,  TestExecSpace)
+#if defined(KOKKOSKERNELS_INST_ORDINAL_INT) &&       \
+        defined(KOKKOSKERNELS_INST_OFFSET_SIZE_T) && \
+        defined(KOKKOSKERNELS_INST_FLOAT) &&         \
+        defined(KOKKOSKERNELS_INST_LAYOUTRIGHT) ||   \
+    (!defined(KOKKOSKERNELS_ETI_ONLY) &&             \
+     !defined(KOKKOSKERNELS_IMPL_CHECK_ETI_CALLS))
+// EXECUTE_TEST_TC(kokkos_half,  kokkos_half, float,   int, size_t, LayoutRight,
+// TestExecSpace) EXECUTE_TEST_TC(kokkos_half,  float,       float,   int,
+// size_t, LayoutRight,  TestExecSpace) EXECUTE_TEST_TC(float, kokkos_half,
+// float,   int, size_t, LayoutRight,  TestExecSpace)
+EXECUTE_TEST_TC(float, float, float, int, size_t, LayoutRight, TestExecSpace)
 #endif
 
-#if defined(KOKKOSKERNELS_INST_ORDINAL_INT) && defined(KOKKOSKERNELS_INST_OFFSET_SIZE_T) \
- && defined(KOKKOSKERNELS_INST_DOUBLE) && defined(KOKKOSKERNELS_INST_LAYOUTRIGHT) \
- || (!defined(KOKKOSKERNELS_ETI_ONLY) && !defined(KOKKOSKERNELS_IMPL_CHECK_ETI_CALLS))
-  // EXECUTE_TEST_TC(kokkos_half,  kokkos_half, double,   int, size_t, LayoutRight,  TestExecSpace)
-  // EXECUTE_TEST_TC(kokkos_half,  double,       double,   int, size_t, LayoutRight,  TestExecSpace)
-  // EXECUTE_TEST_TC(double,        kokkos_half, double,   int, size_t, LayoutRight,  TestExecSpace)
-  EXECUTE_TEST_TC(double,        double,       double,   int, size_t, LayoutRight,  TestExecSpace)
+#if defined(KOKKOSKERNELS_INST_ORDINAL_INT) &&       \
+        defined(KOKKOSKERNELS_INST_OFFSET_SIZE_T) && \
+        defined(KOKKOSKERNELS_INST_DOUBLE) &&        \
+        defined(KOKKOSKERNELS_INST_LAYOUTRIGHT) ||   \
+    (!defined(KOKKOSKERNELS_ETI_ONLY) &&             \
+     !defined(KOKKOSKERNELS_IMPL_CHECK_ETI_CALLS))
+// EXECUTE_TEST_TC(kokkos_half,  kokkos_half, double,   int, size_t,
+// LayoutRight,  TestExecSpace) EXECUTE_TEST_TC(kokkos_half,  double, double,
+// int, size_t, LayoutRight,  TestExecSpace) EXECUTE_TEST_TC(double,
+// kokkos_half, double,   int, size_t, LayoutRight,  TestExecSpace)
+EXECUTE_TEST_TC(double, double, double, int, size_t, LayoutRight, TestExecSpace)
 #endif
 
-#endif // tensor core SpMV tests
+#endif  // tensor core SpMV tests
 
 #undef EXECUTE_TEST_TC
 
-#if (!defined(KOKKOSKERNELS_ETI_ONLY) && !defined(KOKKOSKERNELS_IMPL_CHECK_ETI_CALLS))
-  EXECUTE_TEST_ISSUE_101(TestExecSpace)
+#if (!defined(KOKKOSKERNELS_ETI_ONLY) && \
+     !defined(KOKKOSKERNELS_IMPL_CHECK_ETI_CALLS))
+EXECUTE_TEST_ISSUE_101(TestExecSpace)
 #endif
 
 #if (defined(KOKKOSKERNELS_INST_DOUBLE) &&      \

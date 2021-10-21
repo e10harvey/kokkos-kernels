@@ -531,12 +531,12 @@ class CrsMatrix {
   /// Allocate the values array for subsquent fill.
   template <typename InOrdinal, typename InLayout, typename InDevice,
             typename InMemTraits, typename InSizeType>
-  [
-      [deprecated("Use the constructor that accepts ncols as input "
-                  "instead.")]] CrsMatrix(const std::string& label,
-                                          const Kokkos::StaticCrsGraph<
-                                              InOrdinal, InLayout, InDevice,
-                                              InMemTraits, InSizeType>& graph_)
+  [[deprecated(
+      "Use the constructor that accepts ncols as input "
+      "instead.")]] CrsMatrix(const std::string& label,
+                              const Kokkos::StaticCrsGraph<
+                                  InOrdinal, InLayout, InDevice, InMemTraits,
+                                  InSizeType>& graph_)
       : graph(graph_.entries, graph_.row_map),
         values(label, graph_.entries.extent(0)),
         numCols_(maximum_entry(graph_) + 1) {}
@@ -927,7 +927,8 @@ class CrsMatrix {
 };
 
 /// \class is_crs_matrix
-/// \brief is_crs_matrix<T>::value is true if T is a CrsMatrix<...>, false otherwise
+/// \brief is_crs_matrix<T>::value is true if T is a CrsMatrix<...>, false
+/// otherwise
 template <typename>
 struct is_crs_matrix : public std::false_type {};
 template <typename... P>
@@ -935,5 +936,5 @@ struct is_crs_matrix<CrsMatrix<P...>> : public std::true_type {};
 template <typename... P>
 struct is_crs_matrix<const CrsMatrix<P...>> : public std::true_type {};
 
-} // namespace KokkosSparse
+}  // namespace KokkosSparse
 #endif
