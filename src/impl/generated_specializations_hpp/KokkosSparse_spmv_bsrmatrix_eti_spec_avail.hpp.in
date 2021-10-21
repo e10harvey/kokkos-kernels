@@ -46,7 +46,7 @@
 namespace KokkosSparse {
 namespace Experimental {
 namespace Impl {
-@SPARSE_SPMV_BSRMATRIX_ETI_AVAIL_BLOCK @
+@SPARSE_SPMV_BSRMATRIX_ETI_AVAIL_BLOCK@
 }  // namespace Impl
 }  // namespace Experimental
 }  // namespace KokkosSparse
