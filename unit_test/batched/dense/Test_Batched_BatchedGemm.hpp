@@ -92,8 +92,9 @@ void impl_test_batched_gemm_with_handle(BatchedGemmHandle* batchedGemmHandle,
         c_actual);  // Compute c_actual
   } catch (const std::runtime_error& error) {
     // std::cout << "Caught expected runtime error" << std::endl;
-    if (algo_type == BaseHeuristicAlgos::SQUARE && matCdim1 != matCdim2)
-      ;
+    if (int(algo_type) == int(BaseHeuristicAlgos::SQUARE) &&
+        matCdim1 != matCdim2)
+      return;
     else if (!((std::is_same<view_layout, Kokkos::LayoutLeft>::value &&
                 !std::is_same<batchLayout, BatchLayout::Right>::value) ||
                (std::is_same<view_layout, Kokkos::LayoutRight>::value &&
