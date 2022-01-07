@@ -53,7 +53,7 @@
 #include "gmres.hpp"
 
 int main(int /*argc*/, char** /*argv[]*/) {
-  typedef Kokkos::complex<double> ST;
+  typedef Kokkos::complex<Kokkos::Experimental::half_t> ST;
   typedef int OT;
   typedef Kokkos::DefaultExecutionSpace EXSP;
 
