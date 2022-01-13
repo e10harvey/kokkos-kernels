@@ -96,8 +96,10 @@ class BatchedDblBufGemm {
   using execution_space_type = typename device_type::execution_space;
   using scratch_space_type =
       typename execution_space_type::scratch_memory_space;
-  using view_type_2d_scratch =
+  using view_type_2d_scratch_lr =
       Kokkos::View<view_value_type **, Kokkos::LayoutRight, scratch_space_type>;
+  using view_type_2d_scratch_ll =
+      Kokkos::View<view_value_type **, Kokkos::LayoutLeft, scratch_space_type>;
 
  public:
   BatchedDblBufGemm(HandleType *const handle, ScalarType alpha, AViewType A,
@@ -266,8 +268,8 @@ class BatchedDblBufGemm {
                           const unsigned &nk, view_value_type reg_a[REG_M],
                           view_value_type reg_b[REG_N],
                           view_value_type reg_c[REG_M][REG_N],
-                          view_type_2d_scratch &svA_scr,
-                          view_type_2d_scratch &svB_scr) const {
+                          view_type_2d_scratch_ll &svA_scr,
+                          view_type_2d_scratch_lr &svB_scr) const {
 #if defined(KOKKOS_ENABLE_PRAGMA_UNROLL)
 #pragma unroll
 #endif  // KOKKOS_ENABLE_PRAGMA_UNROLL
@@ -329,8 +331,8 @@ class BatchedDblBufGemm {
                                  __ei.__batch_layout_tag);
 
       // Allocate scratch memory buffers used for prefetching
-      view_type_2d_scratch svA_scr(member.team_scratch(0), TILE_M, TILE_K);
-      view_type_2d_scratch svB_scr(member.team_scratch(0), TILE_K, TILE_N);
+      view_type_2d_scratch_ll svA_scr(member.team_scratch(0), TILE_M, TILE_K);
+      view_type_2d_scratch_lr svB_scr(member.team_scratch(0), TILE_K, TILE_N);
 
       Kokkos::parallel_for(
           Kokkos::TeamThreadRange(member, 0, STRIDE_M),
