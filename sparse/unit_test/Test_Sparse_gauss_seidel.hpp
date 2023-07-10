@@ -58,8 +58,8 @@ template <typename Handle, typename crsMat_t, typename vec_t>
 void run_gauss_seidel(
     Handle& kh, crsMat_t input_mat, vec_t x_vector, vec_t y_vector,
     bool is_symmetric_graph, typename crsMat_t::value_type omega,
-    int apply_type = 0  // 0 for symmetric, 1 for forward, 2 for backward.
-) {
+    int apply_type = 0,  // 0 for symmetric, 1 for forward, 2 for backward.
+    int nstreams   = 1) {
   const size_t num_rows = input_mat.numRows();
   const size_t num_cols = input_mat.numCols();
   const int apply_count = 2;
@@ -98,6 +98,22 @@ void run_gauss_seidel(
   }
 }
 
+template <typename Handle, typename crsMat_t, typename vec_t>
+void run_gauss_seidel_streams(
+    std::vector<Handle&> kh, std::vector<crsMat_t> input_mat,
+    std::vector<vec_t> x_vector, std::vector<vec_t> y_vector,
+    std::vector<bool> is_symmetric_graph,
+    std::vector<typename crsMat_t::value_type> omega,
+    std::vector<int>
+        apply_type,  // 0 for symmetric, 1 for forward, 2 for backward.
+    int nstreams = 1) {
+  for (int i = 0; i < nstreams; i++) {
+    return run_gauss_seidel(kh[i], input_mat[i], x_vector[i], y_vector[i],
+                            is_symmetric_graph[i], omega[i], apply_type[i],
+                            nstreams);
+  }
+}
+
 template <typename crsMat_t, typename vec_t>
 void run_gauss_seidel(
     crsMat_t input_mat, GSAlgorithm gs_algorithm, vec_t x_vector,
@@ -106,9 +122,9 @@ void run_gauss_seidel(
     int cluster_size = 1,
     bool classic =
         false,  // only with two-stage, true for sptrsv instead of richardson
-    ClusteringAlgorithm clusterAlgo = CLUSTER_DEFAULT,
-    KokkosGraph::ColoringAlgorithm coloringAlgo =
-        KokkosGraph::COLORING_DEFAULT) {
+    ClusteringAlgorithm clusterAlgo             = CLUSTER_DEFAULT,
+    KokkosGraph::ColoringAlgorithm coloringAlgo = KokkosGraph::COLORING_DEFAULT,
+    int nstreams                                = 1) {
   using size_type = typename crsMat_t::size_type;
   using lno_t     = typename crsMat_t::ordinal_type;
   using scalar_t  = typename crsMat_t::value_type;
@@ -142,6 +158,25 @@ void run_gauss_seidel(
   kh.destroy_gs_handle();
 }
 
+template <typename crsMat_t, typename vec_t>
+void run_gauss_seidel_streams(
+    std::vector<crsMat_t> input_mat, std::vector<GSAlgorithm> gs_algorithm,
+    std::vector<vec_t> x_vector, std::vector<vec_t> y_vector,
+    std::vector<bool> is_symmetric_graph,
+    std::vector<int>
+        apply_type,  // 0 for symmetric, 1 for forward, 2 for backward.
+    std::vector<int> cluster_size,
+    std::vector<bool>
+        classic,  // only with two-stage, true for sptrsv instead of richardson
+    std::vector<ClusteringAlgorithm> clusterAlgo,
+    std::vector<KokkosGraph::ColoringAlgorithm> coloringAlgo,
+    int nstreams = 1) {
+  for (int i = 0; i < nstreams; i++)
+    return run_gauss_seidel(input_mat[i], gs_algorithm[i], x_vector[i],
+                            y_vector[i], is_symmetric_graph[i], apply_type[i],
+                            cluster_size[i], classic[i], clusterAlgo[i],
+                            coloringAlgo[i], nstreams);
+}
 }  // namespace Test
 
 template <typename scalar_t, typename lno_t, typename size_type,
