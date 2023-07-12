@@ -58,17 +58,31 @@ template <typename Handle, typename crsMat_t, typename vec_t>
 void run_gauss_seidel(
     Handle& kh, crsMat_t input_mat, vec_t x_vector, vec_t y_vector,
     bool is_symmetric_graph, typename crsMat_t::value_type omega,
-    int apply_type = 0,  // 0 for symmetric, 1 for forward, 2 for backward.
-    int nstreams   = 1) {
+    int apply_type = 0  // 0 for symmetric, 1 for forward, 2 for backward.
+) {
   const size_t num_rows = input_mat.numRows();
   const size_t num_cols = input_mat.numCols();
   const int apply_count = 2;
 
+  Kokkos::Timer timer;
+  timer.reset();
   gauss_seidel_symbolic(&kh, num_rows, num_cols, input_mat.graph.row_map,
                         input_mat.graph.entries, is_symmetric_graph);
+  double symbolic_launch = timer.seconds();
+  timer.reset();
+  Kokkos::fence();
+  double symbolic_compute = timer.seconds();
+  printf("symbolic, %gs, %gs\n", symbolic_launch, symbolic_compute);
+  timer.reset();
   gauss_seidel_numeric(&kh, num_rows, num_cols, input_mat.graph.row_map,
                        input_mat.graph.entries, input_mat.values,
                        is_symmetric_graph);
+  double numeric_launch = timer.seconds();
+  timer.reset();
+  Kokkos::fence();
+  double numeric_compute = timer.seconds();
+  printf("numeric, %gs, %gs\n", numeric_launch, numeric_compute);
+  timer.reset();
 
   switch (apply_type) {
     case 0:
@@ -96,6 +110,11 @@ void run_gauss_seidel(
           true, omega, apply_count);
       break;
   }
+  double apply_launch = timer.seconds();
+  timer.reset();
+  Kokkos::fence();
+  double apply_compute = timer.seconds();
+  printf("apply, %gs, %gs\n", apply_launch, apply_compute);
 }
 
 template <typename Handle, typename crsMat_t, typename vec_t>
@@ -122,9 +141,9 @@ void run_gauss_seidel(
     int cluster_size = 1,
     bool classic =
         false,  // only with two-stage, true for sptrsv instead of richardson
-    ClusteringAlgorithm clusterAlgo             = CLUSTER_DEFAULT,
-    KokkosGraph::ColoringAlgorithm coloringAlgo = KokkosGraph::COLORING_DEFAULT,
-    int nstreams                                = 1) {
+    ClusteringAlgorithm clusterAlgo = CLUSTER_DEFAULT,
+    KokkosGraph::ColoringAlgorithm coloringAlgo =
+        KokkosGraph::COLORING_DEFAULT) {
   using size_type = typename crsMat_t::size_type;
   using lno_t     = typename crsMat_t::ordinal_type;
   using scalar_t  = typename crsMat_t::value_type;
@@ -701,26 +720,26 @@ void test_gauss_seidel_custom_coloring(lno_t numRows, lno_t nnzPerRow) {
   TEST_F(                                                                                      \
       TestCategory,                                                                            \
       sparse##_##gauss_seidel_asymmetric_rank1##_##SCALAR##_##ORDINAL##_##OFFSET##_##DEVICE) { \
-    test_gauss_seidel_rank1<SCALAR, ORDINAL, OFFSET, DEVICE>(2000, 2000 * 20,                  \
-                                                             200, 10, false);                  \
+    test_gauss_seidel_rank1<SCALAR, ORDINAL, OFFSET, DEVICE>(                                  \
+        30 * 2000, 30 * 2000 * 20, 200, 10, false);                                            \
   }                                                                                            \
   TEST_F(                                                                                      \
       TestCategory,                                                                            \
       sparse##_##gauss_seidel_asymmetric_rank2##_##SCALAR##_##ORDINAL##_##OFFSET##_##DEVICE) { \
     test_gauss_seidel_rank2<SCALAR, ORDINAL, OFFSET, DEVICE>(                                  \
-        2000, 2000 * 20, 200, 10, 3, false);                                                   \
+        30 * 2000, 30 * 2000 * 20, 200, 10, 3, false);                                         \
   }                                                                                            \
   TEST_F(                                                                                      \
       TestCategory,                                                                            \
       sparse##_##gauss_seidel_symmetric_rank1##_##SCALAR##_##ORDINAL##_##OFFSET##_##DEVICE) {  \
-    test_gauss_seidel_rank1<SCALAR, ORDINAL, OFFSET, DEVICE>(2000, 2000 * 20,                  \
-                                                             200, 10, true);                   \
+    test_gauss_seidel_rank1<SCALAR, ORDINAL, OFFSET, DEVICE>(                                  \
+        30 * 2000, 30 * 2000 * 20, 200, 10, true);                                             \
   }                                                                                            \
   TEST_F(                                                                                      \
       TestCategory,                                                                            \
       sparse##_##gauss_seidel_symmetric_rank2##_##SCALAR##_##ORDINAL##_##OFFSET##_##DEVICE) {  \
     test_gauss_seidel_rank2<SCALAR, ORDINAL, OFFSET, DEVICE>(                                  \
-        2000, 2000 * 20, 200, 10, 3, true);                                                    \
+        30 * 2000, 30 * 2000 * 20, 200, 10, 3, true);                                          \
   }                                                                                            \
   TEST_F(                                                                                      \
       TestCategory,                                                                            \

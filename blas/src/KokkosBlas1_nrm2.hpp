@@ -26,6 +26,8 @@ namespace KokkosBlas {
 
 /// \brief Return the nrm2 of the vector x.
 ///
+/// This function is blocking and thread-safe.
+///
 /// \tparam execution_space a Kokkos execution space where the kernel will run.
 /// \tparam XVector Type of the first vector x; a 1-D Kokkos::View.
 ///
@@ -80,6 +82,8 @@ nrm2(const execution_space& space, const XVector& x) {
 
 /// \brief Return the nrm2 of the vector x.
 ///
+/// This function is blocking and thread-safe.
+///
 /// The kernel is executed in the default stream/queue associated
 /// with the execution space of XVector.
 ///
@@ -99,7 +103,7 @@ nrm2(const XVector& x) {
 ///
 /// Replace each entry in R with the nrm2olute value (magnitude) of the
 /// corresponding entry in X.
-/// This function is non-blocking and thread-safe
+/// This function is non-blocking and thread-safe.
 ///
 /// \tparam execution_space a Kokkos execution space where the kernel will run.
 /// \tparam RMV 1-D or 2-D Kokkos::View specialization.
