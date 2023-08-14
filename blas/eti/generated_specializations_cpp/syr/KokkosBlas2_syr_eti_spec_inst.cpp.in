@@ -14,26 +14,12 @@
 //
 //@HEADER
 
-#ifndef KOKKOSKERNELS_ALWAYSFALSE_HPP
-#define KOKKOSKERNELS_ALWAYSFALSE_HPP
+#define KOKKOSKERNELS_IMPL_COMPILE_LIBRARY true
+#include "KokkosKernels_config.h"
+#include "KokkosBlas2_syr_spec.hpp"
 
-#include <type_traits>
-
-/*! \file KokkosKernels_AlwaysFalse.hpp
-    \brief A convenience type to be used in a static_assert that should always
-   fail
-*/
-
-namespace KokkosKernels {
+namespace KokkosBlas {
 namespace Impl {
-
-template <typename T>
-using always_false = std::false_type;
-
-template <typename T>
-inline constexpr bool always_false_v = always_false<T>::value;
-
-}  // namespace Impl
-}  // namespace KokkosKernels
-
-#endif  // KOKKOSKERNELS_ALWAYSFALSE_HPP
+@BLAS2_SYR_ETI_INST_BLOCK@
+} //IMPL
+} //Kokkos

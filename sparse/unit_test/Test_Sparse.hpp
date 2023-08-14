@@ -27,6 +27,7 @@
 #include "Test_Sparse_mdf.hpp"
 #include "Test_Sparse_findRelOffset.hpp"
 #include "Test_Sparse_gauss_seidel.hpp"
+#include "Test_Sparse_MergeMatrix.hpp"
 #include "Test_Sparse_replaceSumInto.hpp"
 #include "Test_Sparse_replaceSumIntoLonger.hpp"
 #include "Test_Sparse_spadd.hpp"
@@ -52,7 +53,6 @@
 // to actually define tests.
 
 #include "Test_Sparse_Utils_cusparse.hpp"
-
 #include "Test_Sparse_rocsparse.hpp"
 
 #endif  // TEST_SPARSE_HPP

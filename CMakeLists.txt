@@ -10,7 +10,7 @@ SET(KOKKOSKERNELS_TOP_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR})
 SET(KOKKOSKERNELS_TOP_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
 SET(KokkosKernels_VERSION_MAJOR 4)
-SET(KokkosKernels_VERSION_MINOR 0)
+SET(KokkosKernels_VERSION_MINOR 1)
 SET(KokkosKernels_VERSION_PATCH 99)
 SET(KokkosKernels_VERSION "${KokkosKernels_VERSION_MAJOR}.${KokkosKernels_VERSION_MINOR}.${KokkosKernels_VERSION_PATCH}")
 
@@ -126,7 +126,7 @@ ELSE()
   IF (NOT KOKKOSKERNELS_HAS_TRILINOS AND NOT KOKKOSKERNELS_HAS_PARENT)
    # This is a standalone build
    FIND_PACKAGE(Kokkos REQUIRED)
-   MESSAGE(STATUS "Found Kokkos at ${Kokkos_DIR}")
+   MESSAGE(STATUS "Found Kokkos version ${Kokkos_VERSION} at ${Kokkos_DIR}")
   ENDIF()
 
   INCLUDE(cmake/kokkos_backends.cmake)
@@ -305,7 +305,6 @@ ELSE()
   # This doesn't change pre-existing behavior before the ETI changes
   #LIST(APPEND HEADERS ${ETI_HEADERS})
   #-----------------------------------------------------------------------------
-
   KOKKOSKERNELS_ADD_LIBRARY(
     kokkoskernels
     HEADERS ${HEADERS}
@@ -321,6 +320,10 @@ ELSE()
     #no linking commands required - tribits does this
   ELSE()
     ADD_LIBRARY(Kokkos::kokkoskernels ALIAS kokkoskernels)
+    # Address kokkos/kokkos-kernels#1749
+    ADD_LIBRARY(KokkosKernels::kokkoskernels ALIAS kokkoskernels)
+    # all_libs target is required for TriBITS-compliance
+    ADD_LIBRARY(KokkosKernels::all_libs ALIAS kokkoskernels)
     TARGET_LINK_LIBRARIES(kokkoskernels PUBLIC Kokkos::kokkos)
     FOREACH(DIR ${KK_INCLUDE_DIRS})
       TARGET_INCLUDE_DIRECTORIES(kokkoskernels PUBLIC $<BUILD_INTERFACE:${DIR}>)
