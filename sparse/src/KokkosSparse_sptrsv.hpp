@@ -439,7 +439,7 @@ void sptrsv_solve(KernelHandle *handle, lno_row_view_t_ rowmap,
   sptrsv_solve(my_exec_space, handle, rowmap, entries, values, b, x);
 }
 
-#if defined(KOKKOSKERNELS_ENABLE_SUPERNODAL_SPTRSV)
+#if defined(KOKKOSKERNELS_ENABLE_SUPERNODAL_SPTRSV) || defined(DOXY)
 /**
  * @brief Supernodal sptrsv solve phase of x for linear system Ax=b
  *
