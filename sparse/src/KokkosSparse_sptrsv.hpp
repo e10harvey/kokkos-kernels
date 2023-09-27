@@ -48,6 +48,7 @@ namespace Experimental {
  * KokkosKernels::Experimental::KokkosKernelsHandle
  * @tparam lno_row_view_t_ The CRS matrix's (A) rowmap type
  * @tparam lno_nnz_view_t_ The CRS matrix's (A) entries type
+ * @param space The execution space instance this kernel will run on
  * @param handle KernelHandle instance
  * @param rowmap The CRS matrix's (A) rowmap
  * @param entries The CRS matrix's (A) entries
@@ -144,6 +145,7 @@ void sptrsv_symbolic(KernelHandle *handle, lno_row_view_t_ rowmap,
  * KokkosKernels::Experimental::KokkosKernelsHandle
  * @tparam lno_row_view_t_ The CRS matrix's (A) rowmap type
  * @tparam lno_nnz_view_t_ The CRS matrix's (A) entries type
+ * @param space The execution space instance this kernel will run on
  * @param handle KernelHandle instance
  * @param rowmap The CRS matrix's (A) rowmap
  * @param entries The CRS matrix's (A) entries
