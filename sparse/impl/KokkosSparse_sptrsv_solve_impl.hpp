@@ -2922,12 +2922,12 @@ void lower_tri_solve(ExecutionSpace &space, TriSolveHandle &thandle,
 
   const scalar_t zero(0.0);
   const scalar_t one(1.0);
-  Kokkos::deep_copy(space, nodes_grouped_by_level_host, nodes_grouped_by_level);
+  Kokkos::deep_copy(nodes_grouped_by_level_host, nodes_grouped_by_level);
 
   Kokkos::View<size_type *, Kokkos::HostSpace> row_map_host(
-      Kokkos::view_alloc(space, Kokkos::WithoutInitializing, "host rowmap"),
+      Kokkos::view_alloc(Kokkos::WithoutInitializing, "host rowmap"),
       row_map.extent(0));
-  Kokkos::deep_copy(space, row_map_host, row_map);
+  Kokkos::deep_copy(row_map_host, row_map);
 
   // inversion options
   const bool invert_diagonal    = thandle.get_invert_diagonal();
@@ -3328,12 +3328,12 @@ void upper_tri_solve(ExecutionSpace &space, TriSolveHandle &thandle,
   const scalar_t one(1.0);
 
   auto nodes_grouped_by_level_host = thandle.get_host_nodes_grouped_by_level();
-  Kokkos::deep_copy(space, nodes_grouped_by_level_host, nodes_grouped_by_level);
+  Kokkos::deep_copy(nodes_grouped_by_level_host, nodes_grouped_by_level);
 
   Kokkos::View<size_type *, Kokkos::HostSpace> row_map_host(
-      Kokkos::view_alloc(space, Kokkos::WithoutInitializing, "host rowmap"),
+      Kokkos::view_alloc(Kokkos::WithoutInitializing, "host rowmap"),
       row_map.extent(0));
-  Kokkos::deep_copy(space, row_map_host, row_map);
+  Kokkos::deep_copy(row_map_host, row_map);
 
   // supernode sizes
   const int *supercols      = thandle.get_supercols();

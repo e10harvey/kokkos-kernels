@@ -310,8 +310,7 @@ void lower_tri_symbolic(ExecSpaceIn& space, TriSolveHandle& thandle,
 
     // rowptr: pointer to begining of each row (CRS)
     auto row_map = Kokkos::create_mirror_view(drow_map);
-    Kokkos::deep_copy(space, row_map, drow_map);
-    space.fence();
+    Kokkos::deep_copy(row_map, drow_map);
 
     // # of nodes per level
     auto dnodes_per_level = thandle.get_nodes_per_level();
@@ -395,8 +394,7 @@ void lower_tri_symbolic(ExecSpaceIn& space, TriSolveHandle& thandle,
       /* initialize the ready tasks with leaves */
       const int* parents = thandle.get_etree_parents();
       integer_view_host_t check("check", nsuper);
-      Kokkos::deep_copy(space, check, 0);
-      space.fence();
+      Kokkos::deep_copy(check, 0);
 
       auto dag         = thandle.get_supernodal_dag();
       auto dag_row_map = dag.row_map;
