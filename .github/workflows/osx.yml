@@ -10,6 +10,9 @@ on:
     - 'docs/**'
     types: [ opened, reopened, synchronize ]
 
+env:
+  GITHUB_ACTOR: "dne"
+
 permissions:
   contents: none
 
@@ -63,6 +66,7 @@ jobs:
 
       - name: configure_kokkos
         run: |
+          echo "GITHUB_ACTOR=$GITHUB_ACTOR"
           mkdir -p kokkos/{build,install}
           cd kokkos/build
           cmake \
