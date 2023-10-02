@@ -277,6 +277,7 @@ void sptrsvcuSPARSE_symbolic(ExecutionSpace &space, KernelHandle *sptrsv_handle,
   }
 #endif
 #else
+  (void)space;
   (void)sptrsv_handle;
   (void)nrows;
   (void)row_map;
